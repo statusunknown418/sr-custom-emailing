@@ -1,0 +1,52 @@
+{
+  "name": "sr-custom-emailing",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "dotenv": "^17.2.2",
+      "zod": "^4.1.13",
+      "typescript": "^6",
+      "@types/node": "^22.13.14",
+      "@cloudflare/workers-types": "^4.20251213.0",
+      "hono": "^4.8.2",
+      "@orpc/server": "^1.13.14",
+      "@orpc/openapi": "^1.13.14",
+      "@orpc/zod": "^1.13.14",
+      "alchemy": "^0.91.2"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "check-types": "turbo check-types",
+    "dev:server": "turbo -F server dev",
+    "db:push": "turbo -F @sr-custom-emailing/db db:push",
+    "db:generate": "turbo -F @sr-custom-emailing/db db:generate",
+    "deploy": "turbo -F @sr-custom-emailing/infra deploy",
+    "destroy": "turbo -F @sr-custom-emailing/infra destroy",
+    "check": "ultracite check",
+    "fix": "ultracite fix",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@sr-custom-emailing/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@cloudflare/workers-types": "catalog:",
+    "@sr-custom-emailing/config": "workspace:*",
+    "@types/node": "catalog:",
+    "husky": "latest",
+    "turbo": "^2.8.12",
+    "typescript": "catalog:",
+    "ultracite": "7.8.1"
+  },
+  "packageManager": "bun@1.3.14"
+}
