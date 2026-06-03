@@ -8,7 +8,6 @@
   "files": {
     "ignoreUnknown": false,
     "includes": [
-      "**",
       "!**/.next",
       "!**/dist",
       "!**/.turbo",
@@ -46,6 +45,11 @@
       "recommended": true,
       "correctness": {
         "useExhaustiveDependencies": "info"
+      },
+      "performance": {
+        "noBarrelFile": "off",
+        "noNamespaceImport": "off",
+        "noReExportAll": "off"
       },
       "nursery": {
         "useSortedClasses": {

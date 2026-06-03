@@ -17,6 +17,7 @@
     "@orpc/zod": "catalog:",
     "@sr-custom-emailing/db": "workspace:*",
     "@sr-custom-emailing/env": "workspace:*",
+    "@sr-custom-emailing/background": "workspace:*",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },

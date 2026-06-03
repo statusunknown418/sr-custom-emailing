@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "alchemy dev",
-    "deploy": "alchemy deploy",
-    "destroy": "alchemy destroy"
+    "dev": "node --watch --experimental-strip-types alchemy.run.ts --dev",
+    "deploy": "node --experimental-strip-types alchemy.run.ts",
+    "destroy": "node --experimental-strip-types alchemy.run.ts --destroy"
   },
   "dependencies": {
     "dotenv": "catalog:",

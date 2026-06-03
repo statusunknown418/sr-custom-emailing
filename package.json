@@ -16,18 +16,22 @@
       "@orpc/server": "^1.13.14",
       "@orpc/openapi": "^1.13.14",
       "@orpc/zod": "^1.13.14",
-      "alchemy": "^0.91.2"
+      "alchemy": "^0.91.2",
+      "@trigger.dev/sdk": "^4.4.6",
+      "trigger.dev": "^4.4.6"
     }
   },
   "type": "module",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "turbo -F @sr-custom-emailing/infra -F @sr-custom-emailing/background dev",
     "build": "turbo build",
     "check-types": "turbo check-types",
-    "dev:server": "turbo -F server dev",
+    "dev:server": "turbo -F @sr-custom-emailing/infra dev",
+    "dev:background": "turbo -F @sr-custom-emailing/background dev",
     "db:push": "turbo -F @sr-custom-emailing/db db:push",
     "db:generate": "turbo -F @sr-custom-emailing/db db:generate",
     "deploy": "turbo -F @sr-custom-emailing/infra deploy",
+    "deploy:background": "turbo -F @sr-custom-emailing/background deploy",
     "destroy": "turbo -F @sr-custom-emailing/infra destroy",
     "check": "ultracite check",
     "fix": "ultracite fix",
