@@ -16,26 +16,33 @@ export const scrapePostPayloadSchema = z.object({
 
 export type ScrapePostPayload = z.infer<typeof scrapePostPayloadSchema>;
 
+/** Normalize a missing/null/undefined Clay field to "". */
+const flexString = z
+	.string()
+	.nullish()
+	.transform((value) => value ?? "");
+
 /**
- * A single lead row delivered by Clay. `email` is optional because Clay's
- * enrichment may not resolve an address for every lead; a missing/null email
- * must not crash the run (Instantly simply drops emailless rows on import).
- * All other fields are required.
+ * A single lead row delivered by Clay. Only `originalPostUrl` is required (it
+ * links the lead to its cached post). `email` is nullish (Instantly drops
+ * emailless rows on import). Every other field tolerates a missing/null value
+ * from Clay's enrichment and normalizes to "" so a partial lead never crashes
+ * the run; downstream consumers always receive strings.
  */
 export const clayLeadSchema = z.object({
 	email: z.string().nullish(),
-	staffinClassification: z.string(),
-	companyName: z.string(),
-	companyUrl: z.string(),
-	companyLinkedin: z.string(),
-	companyEmployees: z.string(),
-	companyIndustry: z.string(),
-	companyDescription: z.string(),
-	name: z.string(),
-	country: z.string(),
-	originalComment: z.string(),
+	staffinClassification: flexString,
+	companyName: flexString,
+	companyUrl: flexString,
+	companyLinkedin: flexString,
+	companyEmployees: flexString,
+	companyIndustry: flexString,
+	companyDescription: flexString,
+	name: flexString,
+	country: flexString,
+	originalComment: flexString,
 	originalPostUrl: z.string().min(1),
-	personalLinkedinUrl: z.string(),
+	personalLinkedinUrl: flexString,
 });
 
 export type ClayLead = z.infer<typeof clayLeadSchema>;
