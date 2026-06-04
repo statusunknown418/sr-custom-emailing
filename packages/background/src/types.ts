@@ -1,15 +1,5 @@
 import { z } from "zod";
 
-export const startBackgroundProcessingPayloadSchema = z.object({
-	requestId: z.string().min(1),
-	source: z.string().min(1).default("api"),
-	metadata: z.record(z.string(), z.string()).optional(),
-});
-
-export type StartBackgroundProcessingPayload = z.input<
-	typeof startBackgroundProcessingPayloadSchema
->;
-
 /** Public API input: kick off scraping for one LinkedIn post. */
 export const startLinkedinScrapingPayloadSchema = z.object({
 	originalPostUrl: z.string().min(1),
@@ -26,8 +16,14 @@ export const scrapePostPayloadSchema = z.object({
 
 export type ScrapePostPayload = z.infer<typeof scrapePostPayloadSchema>;
 
-/** A single lead row delivered by Clay. All fields are required. */
+/**
+ * A single lead row delivered by Clay. `email` is optional because Clay's
+ * enrichment may not resolve an address for every lead; a missing/null email
+ * must not crash the run (Instantly simply drops emailless rows on import).
+ * All other fields are required.
+ */
 export const clayLeadSchema = z.object({
+	email: z.string().nullish(),
 	staffinClassification: z.string(),
 	companyName: z.string(),
 	companyUrl: z.string(),

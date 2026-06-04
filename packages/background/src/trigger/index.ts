@@ -1,1 +1,2 @@
-export { startBackgroundProcessing } from "./start-background-processing";
+export { emailGeneration } from "./email-generation.task";
+export { scrapePost } from "./scrape-post.task";

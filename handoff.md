@@ -111,7 +111,7 @@ Does NOT affect doc/code style — only chat prose.
   (`GOOGLE_SERVICE_ACCOUNT_JSON`), `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB`
   (default `Sheet1`). `values.append`, `valueInputOption: "RAW"`, range
   `${tab}!A1`. `EmailSheetRow` interface (alphabetical members);
-  `SHEET_COLUMNS` const = single source of truth for the 27-col Instantly order
+  `SHEET_COLUMNS` const = single source of truth for the 28-col Instantly order
   (Stage 10). Empty `rows` → 0 written, no API call. `requireEnv` throws on
   missing env. Reads `process.env` (tasks run on Trigger/Node, not the Worker).
 
@@ -119,7 +119,7 @@ Does NOT affect doc/code style — only chat prose.
 
 - `packages/background/src/types.ts` — added zod schemas + inferred types:
   `startLinkedinScrapingPayloadSchema`, `scrapePostPayloadSchema`,
-  `clayLeadSchema` (11 required fields; `originalPostUrl` `.min(1)`),
+  `clayLeadSchema` (12 required fields incl. `email`; `originalPostUrl` `.min(1)`),
   `emailGenerationPayloadSchema` (`leads` `.array().min(1)`). All ids/types use
   `z.infer`.
 - Also added the **internal-endpoint contract** schemas here (NOT in the API
@@ -141,11 +141,17 @@ Does NOT affect doc/code style — only chat prose.
   `${INTERNAL_API_URL}/api-reference/automation/internal/post-cache/update`
   (same prefix the existing `startBackgroundProcessing` REST route uses). Did
   NOT change the server prefix (out of scope, would move existing routes).
-- Auth: `internalProcedure = publicProcedure.use(...)` middleware checks the
-  `x-internal-secret` header against `env.INTERNAL_API_SECRET`. **Fails closed**
-  (secret unset → reject all). Constant-time compare via addition (biome bans
-  bitwise ops — `noBitwiseOperators` — and biome-ignore is forbidden). Rejects
-  with `ORPCError("UNAUTHORIZED")` → 401.
+- Auth: `internalProcedure` now lives in `packages/api/src/auth.ts` (moved out of
+  `internal.ts` so it can be shared) and middleware checks the `x-internal-secret`
+  header against `env.INTERNAL_API_SECRET`. **Fails closed** (secret unset →
+  reject all). Constant-time compare via addition (biome bans bitwise ops —
+  `noBitwiseOperators` — and biome-ignore is forbidden). Rejects with
+  `ORPCError("UNAUTHORIZED")` → 401.
+- **Public automation endpoints are now guarded too.** `startLinkedinScraping`
+  (`POST /automation/linkedin-scraping`, triggers the Claude scrape task) and
+  `startEmailGeneration` (`POST /automation/email-generation`) use
+  `internalProcedure` in `routers/automation.ts`. Callers (Clay, the scraping
+  trigger) MUST send `x-internal-secret: <INTERNAL_API_SECRET>` or get 401.
 - `context.ts` extended to expose `headers: c.req.raw.headers` (additive) so the
   middleware can read the header.
 - Drizzle stays **inside the db package** (api does not depend on `drizzle-orm`).

@@ -1,5 +1,5 @@
 import { env } from "@sr-custom-emailing/env/server";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "./schema";
@@ -77,4 +77,36 @@ export async function getPostsByUrls(
 		.where(inArray(autoEmailing.originalPostUrl, originalPostUrls));
 
 	return rows;
+}
+
+/**
+ * Fetch the single cached post row for a (normalized) `originalPostUrl`, or
+ * `undefined` when no row exists yet.
+ */
+export async function getPostByUrl(
+	originalPostUrl: string
+): Promise<AutoEmailing | undefined> {
+	const db = createDb();
+	const [row] = await db
+		.select()
+		.from(autoEmailing)
+		.where(eq(autoEmailing.originalPostUrl, originalPostUrl))
+		.limit(1);
+
+	return row;
+}
+
+/**
+ * Insert a pending (unscraped) cache row for `originalPostUrl` if one does not
+ * already exist. Idempotent: an existing row (pending or scraped) is left
+ * untouched. The caller must pass an already-normalized URL.
+ */
+export async function insertPendingPost(
+	originalPostUrl: string
+): Promise<void> {
+	const db = createDb();
+	await db
+		.insert(autoEmailing)
+		.values({ originalPostUrl })
+		.onConflictDoNothing({ target: autoEmailing.originalPostUrl });
 }

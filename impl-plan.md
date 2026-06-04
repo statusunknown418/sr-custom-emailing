@@ -419,6 +419,7 @@ Flow:
 
 Append one row per lead. Column order:
 
+- `email`
 - `firstName`
 - `name`
 - `companyName`
@@ -447,7 +448,10 @@ Append one row per lead. Column order:
 - `followUp2Subject`
 - `followUp2Body`
 
-This Sheet exports to CSV for upload to Instantly.
+This Sheet exports to CSV for upload to Instantly. `email` is the recipient
+address (required by Instantly; supplied by Clay) and leads the columns.
+`appendEmailRows` writes this list as a header row when the tab is empty so
+Instantly can map columns and resolve `{{column}}` custom variables by name.
 
 (Implemented by `appendEmailRows` in Stage 4 and consumed by the Stage 7
 email-generation task; listed here as the stable output contract.)

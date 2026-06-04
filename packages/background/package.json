@@ -21,7 +21,6 @@
     "@ai-sdk/anthropic": "^3.0.81",
     "@trigger.dev/sdk": "catalog:",
     "ai": "^6.0.194",
-    "apify-client": "^2.23.3",
     "googleapis": "^173.0.0",
     "zod": "catalog:"
   },

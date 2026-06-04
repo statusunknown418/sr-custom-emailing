@@ -13,14 +13,15 @@ const db = await D1Database("database", {
 });
 
 export const server = await Worker("server", {
+	adopt: true,
 	cwd: "../../apps/server",
 	entrypoint: "src/index.ts",
 	compatibility: "node",
 	bindings: {
 		DB: db,
 		CORS_ORIGIN: alchemy.env.CORS_ORIGIN ?? "",
-		TRIGGER_SECRET_KEY: alchemy.env.TRIGGER_SECRET_KEY ?? "",
-		INTERNAL_API_SECRET: alchemy.env.INTERNAL_API_SECRET ?? "",
+		TRIGGER_SECRET_KEY: alchemy.secret(alchemy.env.TRIGGER_SECRET_KEY),
+		INTERNAL_API_SECRET: alchemy.secret(alchemy.env.INTERNAL_API_SECRET),
 	},
 	dev: {
 		port: 3000,

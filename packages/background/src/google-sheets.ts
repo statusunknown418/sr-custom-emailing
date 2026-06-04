@@ -1,4 +1,9 @@
-import { google } from "googleapis";
+import {
+	auth,
+	sheets as createSheetsClient,
+} from "googleapis/build/src/apis/sheets/index.js";
+
+import { requireEnv } from "./process-env";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const DEFAULT_SHEET_TAB = "Sheet1";
@@ -17,6 +22,7 @@ export interface EmailSheetRow {
 	companyName: string;
 	companyUrl: string;
 	country: string;
+	email: string;
 	email1Body: string;
 	email1Subject: string;
 	firstName: string;
@@ -45,6 +51,7 @@ export interface EmailSheetRow {
  * column ordering.
  */
 const SHEET_COLUMNS = [
+	"email",
 	"firstName",
 	"name",
 	"companyName",
@@ -79,12 +86,32 @@ export interface AppendEmailRowsResult {
 	sheetUrl: string;
 }
 
-function requireEnv(name: string): string {
-	const value = process.env[name];
-	if (!value) {
-		throw new Error(`Missing required environment variable: ${name}`);
+/**
+ * Write the column-name header row when the target tab is still empty. Instantly
+ * maps CSV columns and custom variables ({@code {{firstName}}}, {@code {{email1Body}}})
+ * by header text, so the sheet must carry one. A non-empty `A1` means the header
+ * already exists, so later appends skip this.
+ */
+async function ensureHeaderRow(
+	sheets: ReturnType<typeof createSheetsClient>,
+	spreadsheetId: string,
+	tab: string
+): Promise<void> {
+	const existing = await sheets.spreadsheets.values.get({
+		spreadsheetId,
+		range: `${tab}!A1`,
+	});
+
+	if (existing.data.values?.length) {
+		return;
 	}
-	return value;
+
+	await sheets.spreadsheets.values.update({
+		spreadsheetId,
+		range: `${tab}!A1`,
+		valueInputOption: "RAW",
+		requestBody: { values: [[...SHEET_COLUMNS]] },
+	});
 }
 
 /**
@@ -110,11 +137,13 @@ export async function appendEmailRows(
 		return { sheetUrl, rowsWritten: 0 };
 	}
 
-	const auth = new google.auth.GoogleAuth({
+	const googleAuth = new auth.GoogleAuth({
 		credentials: JSON.parse(credentialsJson),
 		scopes: [SHEETS_SCOPE],
 	});
-	const sheets = google.sheets({ version: "v4", auth });
+	const sheets = createSheetsClient({ version: "v4", auth: googleAuth });
+
+	await ensureHeaderRow(sheets, spreadsheetId, tab);
 
 	const values = rows.map((row) => SHEET_COLUMNS.map((key) => row[key]));
 

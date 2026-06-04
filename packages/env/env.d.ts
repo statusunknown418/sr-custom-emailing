@@ -15,7 +15,6 @@ declare module "cloudflare:workers" {
 		export interface Env extends CloudflareEnv {
 			ANTHROPIC_API_KEY: string;
 			APIFY_API_KEY: string;
-			CLAY_API_KEY: string;
 			CORS_ORIGIN: string;
 			INSTANTLY_API_KEY: string;
 			TRIGGER_SECRET_KEY: string;
