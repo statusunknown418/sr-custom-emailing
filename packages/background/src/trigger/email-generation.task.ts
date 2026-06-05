@@ -127,8 +127,21 @@ export const emailGeneration = schemaTask({
 	retry: { maxAttempts: 1 },
 	run: async (payload) => {
 		const { leads } = payload;
+		// Drop leads with no email up front: Instantly can't import an emailless
+		// row, so it never reaches the Sheet (and its post is not required below).
+		const leadsWithEmail = leads.filter((lead) => lead.email?.trim());
+		const skippedNoEmail = leads.length - leadsWithEmail.length;
+		if (skippedNoEmail > 0) {
+			logger.warn("Skipped leads without an email address; not written", {
+				skippedNoEmail,
+				leadCount: leads.length,
+			});
+		}
+
 		const normalizedUrls = [
-			...new Set(leads.map((lead) => normalizePostUrl(lead.originalPostUrl))),
+			...new Set(
+				leadsWithEmail.map((lead) => normalizePostUrl(lead.originalPostUrl))
+			),
 		];
 
 		const { rows } = await batchGetPostCache(normalizedUrls);
@@ -152,7 +165,7 @@ export const emailGeneration = schemaTask({
 			);
 		}
 
-		const sheetRows = leads.map((lead) => {
+		const sheetRows = leadsWithEmail.map((lead) => {
 			const url = normalizePostUrl(lead.originalPostUrl);
 			const post = readyByUrl.get(url);
 			if (!post) {
@@ -160,17 +173,6 @@ export const emailGeneration = schemaTask({
 			}
 			return buildSheetRow(lead, post);
 		});
-
-		const leadsWithoutEmail = leads.filter((lead) => !lead.email).length;
-		if (leadsWithoutEmail > 0) {
-			logger.warn(
-				"Leads missing an email address; rows written with blank email",
-				{
-					leadsWithoutEmail,
-					leadCount: leads.length,
-				}
-			);
-		}
 
 		const result = await appendEmailRows(sheetRows);
 		logger.info("Appended email rows", {

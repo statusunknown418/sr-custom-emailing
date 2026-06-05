@@ -2,8 +2,12 @@ import alchemy from "alchemy";
 import { D1Database, Worker } from "alchemy/cloudflare";
 import { config } from "dotenv";
 
-config({ path: "./.env" });
-config({ path: "../../apps/server/.env" });
+const isDev = process.argv.includes("--dev");
+
+if (isDev) {
+	config({ override: false, path: "./.env" });
+	config({ override: false, path: "../../apps/server/.env" });
+}
 
 const app = await alchemy("sr-custom-emailing");
 

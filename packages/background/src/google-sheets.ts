@@ -128,12 +128,15 @@ async function ensureHeaderRow(
 export async function appendEmailRows(
 	rows: EmailSheetRow[]
 ): Promise<AppendEmailRowsResult> {
+	// Defense in depth: never push a row without an email, even if a caller
+	// forgets to filter. Instantly drops emailless rows on import anyway.
+	const writableRows = rows.filter((row) => row.email.trim() !== "");
 	const credentialsJson = requireEnv("GOOGLE_SERVICE_ACCOUNT_JSON");
 	const spreadsheetId = requireEnv("GOOGLE_SHEET_ID");
 	const tab = process.env.GOOGLE_SHEET_TAB ?? DEFAULT_SHEET_TAB;
 	const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 
-	if (rows.length === 0) {
+	if (writableRows.length === 0) {
 		return { sheetUrl, rowsWritten: 0 };
 	}
 
@@ -145,7 +148,9 @@ export async function appendEmailRows(
 
 	await ensureHeaderRow(sheets, spreadsheetId, tab);
 
-	const values = rows.map((row) => SHEET_COLUMNS.map((key) => row[key]));
+	const values = writableRows.map((row) =>
+		SHEET_COLUMNS.map((key) => row[key])
+	);
 
 	const response = await sheets.spreadsheets.values.append({
 		spreadsheetId,
@@ -154,7 +159,7 @@ export async function appendEmailRows(
 		requestBody: { values },
 	});
 
-	const rowsWritten = response.data.updates?.updatedRows ?? rows.length;
+	const rowsWritten = response.data.updates?.updatedRows ?? writableRows.length;
 
 	return { sheetUrl, rowsWritten };
 }

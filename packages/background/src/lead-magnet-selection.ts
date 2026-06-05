@@ -1,8 +1,13 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { type EmailSequence, FIRST_NAME_PLACEHOLDER } from "./emails";
+import {
+	type EmailSequence,
+	FIRST_NAME_PLACEHOLDER,
+	stripEmDashes,
+} from "./emails";
 import { LEAD_MAGNETS, resolveLeadMagnetSequence } from "./lead-magnets";
+import { DEFAULT_FIRST_NAME, getFirstName } from "./names";
 
 /**
  * Anthropic model used to select magnets and author the email sequence. The
@@ -19,20 +24,21 @@ const LEAD_MAGNET_CATALOG = LEAD_MAGNETS.map(
 const SYSTEM_PROMPT = `You write cold outreach for a recruiting tools company, targeting people who commented on a LinkedIn lead-magnet post.
 
 Do two things from the post content:
-1. Select exactly THREE DISTINCT lead magnets from the catalog (return their ids verbatim). Only ids in the catalog exist — never invent one.
+1. Select exactly THREE DISTINCT lead magnets from the catalog (return their ids verbatim). Only ids in the catalog exist - never invent one.
    - targetedLeadMagnetId: best fit for the post topic (used in email 1).
    - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary, used in the two follow-ups.
-2. Write a 3-email sequence tailored to THIS post. Personalize with the post's topic and the poster's name when provided.
+2. Write a 3-email sequence tailored to THIS post. Personalize with the post's topic and the poster's FIRST name only when one is provided (e.g. "Alex", never "Alex Papageorge").
 
 Rules for the copy:
-- The ONLY placeholder allowed is ${FIRST_NAME_PLACEHOLDER}. Bake everything else (poster name, topic, magnet pitch) directly into the text — do not leave any other \${...} tokens.
+- The ONLY placeholder allowed is ${FIRST_NAME_PLACEHOLDER}. Bake everything else (poster first name, topic, magnet pitch) directly into the text - do not leave any other \${...} tokens.
 - Every email body must open with "Hey ${FIRST_NAME_PLACEHOLDER}," so each body contains ${FIRST_NAME_PLACEHOLDER}.
 - Keep it short, plain text, lowercase casual subjects, no markdown, no signature.
+- NEVER use em dashes or en dashes (— or –). Use a single hyphen "-" or rephrase. Only a single dash is allowed anywhere in the copy.
 
 Structure to follow:
-- email1: reference their comment ("Saw your comment on <poster>'s post about <topic>." — drop the name if no poster is given), pitch the targeted magnet, soft CTA ("Want to check it out?"). Subject like "saw your linkedin comment" or "<poster>'s <topic>".
-- followUp1: subject "one more thing"; "We also built this one — <second magnet pitch>."; CTA "Want both?".
-- followUp2: subject "last thing"; "Last one — <third magnet pitch>."; CTA "Should I send it over?".
+- email1: reference their comment ("Saw your comment on <poster first name>'s post about <topic>." - drop the name if no poster is given), pitch the targeted magnet, soft CTA ("Want to check it out?"). Subject like "saw your linkedin comment" or "<poster first name>'s <topic>".
+- followUp1: subject "one more thing"; "We also built this one - <second magnet pitch>."; CTA "Want both?".
+- followUp2: subject "last thing"; "Last one - <third magnet pitch>."; CTA "Should I send it over?".
 
 Catalog:
 ${LEAD_MAGNET_CATALOG}`;
@@ -80,7 +86,8 @@ function requireNonEmpty(value: string, field: string): string {
 	if (trimmed === "") {
 		throw new Error(`Model returned an empty ${field}`);
 	}
-	return trimmed;
+	// Normalize away em/en dashes so no stored template field can ship one.
+	return stripEmDashes(trimmed);
 }
 
 function requirePersonalizedBody(value: string, field: string): string {
@@ -108,14 +115,21 @@ export async function generatePostEmailSequence(input: {
 	posterName?: string | null;
 }): Promise<GeneratedPostSequence> {
 	const postContent = requireNonEmpty(input.postContent, "post content");
-	const posterName = input.posterName?.trim();
+	// Only the poster's first name is baked into the copy ("Alex", not "Alex
+	// Papageorge"); drop the poster entirely when no real name resolves.
+	const rawPosterName = input.posterName?.trim();
+	const derivedFirstName = rawPosterName
+		? getFirstName(rawPosterName)
+		: DEFAULT_FIRST_NAME;
+	const posterFirstName =
+		derivedFirstName === DEFAULT_FIRST_NAME ? undefined : derivedFirstName;
 
 	const { output } = await generateText({
 		model: anthropic(SELECTION_MODEL),
 		output: Output.object({ schema: generationSchema }),
 		system: SYSTEM_PROMPT,
-		prompt: posterName
-			? `Poster: ${posterName}\n\nLinkedIn post content:\n\n${postContent}`
+		prompt: posterFirstName
+			? `Poster first name: ${posterFirstName}\n\nLinkedIn post content:\n\n${postContent}`
 			: `LinkedIn post content:\n\n${postContent}`,
 	});
 

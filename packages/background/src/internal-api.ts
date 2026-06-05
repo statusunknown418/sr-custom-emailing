@@ -30,7 +30,9 @@ async function postInternal<T>(
 	const base = requireEnv("INTERNAL_API_URL").replace(TRAILING_SLASHES_RE, "");
 	const secret = requireEnv("INTERNAL_API_SECRET");
 
-	const response = await fetch(`${base}${OPENAPI_PREFIX}${path}`, {
+	const endpoint = `${base}${OPENAPI_PREFIX}${path}`;
+
+	const response = await fetch(endpoint, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
@@ -40,9 +42,10 @@ async function postInternal<T>(
 	});
 
 	if (!response.ok) {
+		const { origin } = new URL(endpoint);
 		const detail = await response.text().catch(() => "");
 		throw new Error(
-			`Internal API ${path} failed: ${response.status} ${response.statusText} ${detail}`.trim()
+			`Internal API ${path} failed: ${response.status} ${response.statusText} ${detail} (diagnostics: origin=${origin}, secretDefined=${String(secret.length > 0)}, secretLength=${secret.length})`.trim()
 		);
 	}
 

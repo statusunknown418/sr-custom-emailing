@@ -31,14 +31,32 @@ export interface LeadVariables {
 	firstName: string;
 }
 
+/**
+ * Long dashes the model likes to emit: figure dash, en dash, em dash,
+ * horizontal bar, and the minus sign. All collapse to a single hyphen.
+ */
+const LONG_DASH_RE = /[\u2012\u2013\u2014\u2015\u2212]/g;
+/** Runs of 2+ hyphens (e.g. an ASCII "--" em dash) collapse to one. */
+const REPEATED_HYPHEN_RE = /-{2,}/g;
+
+/**
+ * Force email copy to use a single hyphen only: rewrite every em/en/long dash
+ * to `-` and collapse repeated hyphens. Runs as the final pressure guard before
+ * copy reaches the Sheet, so no stored template (old or new) can ship an em
+ * dash. Pure.
+ */
+export function stripEmDashes(text: string): string {
+	return text.replace(LONG_DASH_RE, "-").replace(REPEATED_HYPHEN_RE, "-");
+}
+
 function fill(text: string, vars: LeadVariables): string {
 	return text.replaceAll(FIRST_NAME_PLACEHOLDER, vars.firstName);
 }
 
 function fillEmail(email: Email, vars: LeadVariables): Email {
 	return {
-		subject: fill(email.subject, vars),
-		body: fill(email.body, vars),
+		subject: stripEmDashes(fill(email.subject, vars)),
+		body: stripEmDashes(fill(email.body, vars)),
 	};
 }
 
