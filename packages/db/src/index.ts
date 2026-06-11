@@ -9,21 +9,40 @@ export function createDb() {
 	return drizzle(env.DB, { schema });
 }
 
-/** Fields written when a post finishes scraping, selection, and authoring. */
-export interface UpsertScrapedPostInput {
+/** Scrape + magnet-selection fields common to both cache-update variants. */
+interface UpsertScrapedPostBase {
+	followUpOneLeadMagnetId: string;
+	followUpTwoLeadMagnetId: string;
+	originalPostUrl: string;
+	postContent: string;
+	posterLeadMagnet: string;
+	posterName: string | null;
+	targetedLeadMagnetId: string;
+}
+
+/** Comment-tracking post: the 3 LinkedIn DM bodies are authoritative. */
+export interface UpsertCommentTrackingPostInput extends UpsertScrapedPostBase {
+	dm1Body: string;
+	dm2Body: string;
+	dm3Body: string;
+	source: "comment_tracking";
+}
+
+/** Someone-else post: the 3-email sequence is authoritative (pushed to Instantly). */
+export interface UpsertSomeoneElsePostInput extends UpsertScrapedPostBase {
 	email1Body: string;
 	email1Subject: string;
 	followUp1Body: string;
 	followUp1Subject: string;
 	followUp2Body: string;
 	followUp2Subject: string;
-	followUpOneLeadMagnetId: string;
-	followUpTwoLeadMagnetId: string;
-	originalPostUrl: string;
-	postContent: string;
-	posterName: string | null;
-	targetedLeadMagnetId: string;
+	source: "someone_else";
 }
+
+/** Fields written when a post finishes scraping, selection, and authoring. */
+export type UpsertScrapedPostInput =
+	| UpsertCommentTrackingPostInput
+	| UpsertSomeoneElsePostInput;
 
 /**
  * Insert or update the cached post row for `originalPostUrl`, marking it
@@ -35,19 +54,29 @@ export async function upsertScrapedPost(
 ): Promise<void> {
 	const db = createDb();
 	const mutable = {
+		source: input.source,
 		postContent: input.postContent,
 		posterName: input.posterName,
+		posterLeadMagnet: input.posterLeadMagnet,
 		targetedLeadMagnetId: input.targetedLeadMagnetId,
 		followUpOneLeadMagnetId: input.followUpOneLeadMagnetId,
 		followUpTwoLeadMagnetId: input.followUpTwoLeadMagnetId,
-		email1Subject: input.email1Subject,
-		email1Body: input.email1Body,
-		followUp1Subject: input.followUp1Subject,
-		followUp1Body: input.followUp1Body,
-		followUp2Subject: input.followUp2Subject,
-		followUp2Body: input.followUp2Body,
 		scraped: true,
 		updatedAt: new Date().toISOString(),
+		...(input.source === "comment_tracking"
+			? {
+					dm1Body: input.dm1Body,
+					dm2Body: input.dm2Body,
+					dm3Body: input.dm3Body,
+				}
+			: {
+					email1Subject: input.email1Subject,
+					email1Body: input.email1Body,
+					followUp1Subject: input.followUp1Subject,
+					followUp1Body: input.followUp1Body,
+					followUp2Subject: input.followUp2Subject,
+					followUp2Body: input.followUp2Body,
+				}),
 	};
 
 	await db
@@ -102,11 +131,12 @@ export async function getPostByUrl(
  * untouched. The caller must pass an already-normalized URL.
  */
 export async function insertPendingPost(
-	originalPostUrl: string
+	originalPostUrl: string,
+	source: "comment_tracking" | "someone_else"
 ): Promise<void> {
 	const db = createDb();
 	await db
 		.insert(autoEmailing)
-		.values({ originalPostUrl })
+		.values({ originalPostUrl, source })
 		.onConflictDoNothing({ target: autoEmailing.originalPostUrl });
 }

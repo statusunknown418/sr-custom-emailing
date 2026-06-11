@@ -6,16 +6,16 @@ import { generatePostEmailSequence } from "../lead-magnet-selection";
 import { scrapePostPayloadSchema } from "../types";
 
 /**
- * Scrape one LinkedIn post, select the post-level lead magnet sequence, author
- * the 3-email template, and persist it all to the D1 cache.
+ * Someone-else flow: scrape someone else's LinkedIn post, select the post-level
+ * lead magnet sequence, author the 3-email template, and persist it to the D1
+ * cache (`source = someone_else`) for the Instantly push.
  *
  * Flow: Apify scrape -> validate non-empty content -> Claude selects 3 distinct
- * magnets and writes the template -> POST the internal `post-cache/update`
- * endpoint (the only path to D1 from a task). Fails loudly at every step so a
- * post is never cached with empty content or an invalid selection.
+ * magnets and writes the email template -> POST the internal `post-cache/update`
+ * endpoint. Fails loudly so a post is never cached half-written.
  */
-export const scrapePost = schemaTask({
-	id: "scrape-post",
+export const someoneElseScrape = schemaTask({
+	id: "someone-else-scrape",
 	schema: scrapePostPayloadSchema,
 	retry: {
 		maxAttempts: 3,
@@ -37,17 +37,20 @@ export const scrapePost = schemaTask({
 			postContent: post.postContent,
 			posterName: post.posterName,
 		});
-		logger.info("Selected lead magnet sequence", {
+		logger.info("Authored email sequence", {
 			originalPostUrl,
+			posterLeadMagnet: sequence.posterLeadMagnet,
 			targetedLeadMagnetId: sequence.targetedLeadMagnetId,
 			followUpOneLeadMagnetId: sequence.followUpOneLeadMagnetId,
 			followUpTwoLeadMagnetId: sequence.followUpTwoLeadMagnetId,
 		});
 
 		await updatePostCache({
+			source: "someone_else",
 			originalPostUrl,
 			postContent: post.postContent,
 			posterName: post.posterName,
+			posterLeadMagnet: sequence.posterLeadMagnet,
 			targetedLeadMagnetId: sequence.targetedLeadMagnetId,
 			followUpOneLeadMagnetId: sequence.followUpOneLeadMagnetId,
 			followUpTwoLeadMagnetId: sequence.followUpTwoLeadMagnetId,
@@ -62,6 +65,7 @@ export const scrapePost = schemaTask({
 		return {
 			originalPostUrl,
 			posterName: post.posterName,
+			posterLeadMagnet: sequence.posterLeadMagnet,
 			targetedLeadMagnetId: sequence.targetedLeadMagnetId,
 			followUpOneLeadMagnetId: sequence.followUpOneLeadMagnetId,
 			followUpTwoLeadMagnetId: sequence.followUpTwoLeadMagnetId,

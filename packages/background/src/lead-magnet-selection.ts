@@ -2,6 +2,8 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import {
+	DM_FIRST_NAME_TAG,
+	type DmSequence,
 	type EmailSequence,
 	FIRST_NAME_PLACEHOLDER,
 	stripEmDashes,
@@ -10,8 +12,8 @@ import { LEAD_MAGNETS, resolveLeadMagnetSequence } from "./lead-magnets";
 import { DEFAULT_FIRST_NAME, getFirstName } from "./names";
 
 /**
- * Anthropic model used to select magnets and author the email sequence. The
- * provider reads `ANTHROPIC_API_KEY` from the environment automatically.
+ * Anthropic model used to select magnets and author the copy. The provider
+ * reads `ANTHROPIC_API_KEY` from the environment automatically.
  */
 const SELECTION_MODEL = "claude-sonnet-4-5";
 
@@ -21,13 +23,15 @@ const LEAD_MAGNET_CATALOG = LEAD_MAGNETS.map(
 		`- ${magnet.id} [${magnet.category}] ${magnet.leadMagnet}: ${magnet.description} (pain: so you don't ${magnet.painLine})`
 ).join("\n");
 
-const SYSTEM_PROMPT = `You write cold outreach for a recruiting tools company, targeting people who commented on a LinkedIn lead-magnet post.
+const EMAIL_SYSTEM_PROMPT = `You write cold outreach for a recruiting tools company, targeting people who commented on a LinkedIn lead-magnet post.
 
-Do two things from the post content:
-1. Select exactly THREE DISTINCT lead magnets from the catalog (return their ids verbatim). Only ids in the catalog exist - never invent one.
-   - targetedLeadMagnetId: best fit for the post topic (used in email 1).
-   - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary, used in the two follow-ups.
-2. Write a 3-email sequence tailored to THIS post. Personalize with the post's topic and the poster's FIRST name only when one is provided (e.g. "Alex", never "Alex Papageorge").
+Do three things from the post content:
+1. Identify the lead magnet / resource / offer the POSTER used in the LinkedIn post.
+   - posterLeadMagnet: exact title when stated; otherwise a concise description of the resource/offer; use "none found" only when the post does not promote any resource.
+2. Select exactly THREE DISTINCT SuperRecruiter lead magnets WE could use from the catalog (return their ids verbatim). Only ids in the catalog exist - never invent one.
+   - targetedLeadMagnetId: best SuperRecruiter fit for the post topic (used in email 1).
+   - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary SuperRecruiter magnets, used in the two follow-ups.
+3. Write a 3-email sequence tailored to THIS post. Personalize with the post's topic and the poster's FIRST name only when one is provided (e.g. "Alex", never "Alex Papageorge").
 
 Rules for the copy:
 - The ONLY placeholder allowed is ${FIRST_NAME_PLACEHOLDER}. Bake everything else (poster first name, topic, magnet pitch) directly into the text - do not leave any other \${...} tokens.
@@ -36,27 +40,59 @@ Rules for the copy:
 - NEVER use em dashes or en dashes (— or –). Use a single hyphen "-" or rephrase. Only a single dash is allowed anywhere in the copy.
 
 Structure to follow:
-- email1: reference their comment ("Saw your comment on <poster first name>'s post about <topic>." - drop the name if no poster is given), pitch the targeted magnet, soft CTA ("Want to check it out?"). Subject like "saw your linkedin comment" or "<poster first name>'s <topic>".
-- followUp1: subject "one more thing"; "We also built this one - <second magnet pitch>."; CTA "Want both?".
-- followUp2: subject "last thing"; "Last one - <third magnet pitch>."; CTA "Should I send it over?".
+- email1: reference their comment ("Saw your comment on <poster first name>'s post about <topic>." - drop the name if no poster is given), pitch the targeted SuperRecruiter magnet, soft CTA ("Want to check it out?"). Subject like "saw your linkedin comment" or "<poster first name>'s <topic>".
+- followUp1: subject "one more thing"; "We also built this one - <second SuperRecruiter magnet pitch>."; CTA "Want both?".
+- followUp2: subject "last thing"; "Last one - <third SuperRecruiter magnet pitch>."; CTA "Should I send it over?".
 
 Catalog:
 ${LEAD_MAGNET_CATALOG}`;
 
-const generationSchema = z.object({
+const DM_SYSTEM_PROMPT = `You write LinkedIn DM follow-ups for a recruiting tools company, targeting people who commented on a LinkedIn lead-magnet post.
+
+Do two things from the post content:
+1. Identify the lead magnet / resource / offer the POSTER promoted in the LinkedIn post.
+   - posterLeadMagnet: exact title when stated; otherwise a concise description; use "none found" only when the post does not promote any resource.
+2. Select exactly THREE DISTINCT SuperRecruiter lead magnets from the catalog (return their ids verbatim). Only ids in the catalog exist - never invent one.
+   - targetedLeadMagnetId: best SuperRecruiter fit, pitched in DM 2.
+   - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary magnets, distinct from the others.
+
+Then write a 3-message LinkedIn DM sequence (dm1Body, dm2Body, dm3Body). These are short, casual chat messages - NOT emails. No subject lines, no signatures, plain text, 1 to 3 short lines each.
+
+Rules for the copy:
+- The ONLY merge tag allowed is ${DM_FIRST_NAME_TAG} - a downstream tool fills it per recipient, so leave it verbatim. Every message must open with "Hey ${DM_FIRST_NAME_TAG}" so each body contains ${DM_FIRST_NAME_TAG}. Do NOT use \${...} or invent any other {{...}} tag.
+- Bake the hard-to-fill role into DM 3 as plain text: infer the role the poster is hiring for (or the role most relevant to the post) and write it out (e.g. "a senior backend engineer"). If the post gives no hiring/role signal, make DM 3 a soft offer to help with their hiring instead. NEVER leave a {{...}} tag for the role.
+- NEVER use em dashes or en dashes (— or –). Use a single hyphen "-" or rephrase.
+
+Structure to follow:
+- dm1: friendly check-in on the resource they engaged with. "Hey ${DM_FIRST_NAME_TAG}, were you able to <use/apply the poster's resource>? Curious if it's helping your <workflow/hiring>."
+- dm2: "Hey ${DM_FIRST_NAME_TAG} - forgot to mention, we also made <targeted SuperRecruiter magnet> that <benefit> so you don't have to <pain>. Want to check it out?"
+- dm3: "Hey ${DM_FIRST_NAME_TAG}, saw you're hiring for <inferred role> - want me to run a campaign for you?" (or a soft hiring-help offer if no role signal).
+
+Catalog:
+${LEAD_MAGNET_CATALOG}`;
+
+const magnetSelectionShape = {
+	posterLeadMagnet: z
+		.string()
+		.describe("Lead magnet / resource / offer promoted by the poster."),
 	targetedLeadMagnetId: z
 		.string()
-		.describe("Catalog id of the primary magnet (email 1)."),
+		.describe("Catalog id of our primary magnet."),
 	followUpOneLeadMagnetId: z
 		.string()
 		.describe(
-			"Catalog id of the magnet for follow-up 1. Distinct from the others."
+			"Catalog id of the first follow-up magnet. Distinct from others."
 		),
 	followUpTwoLeadMagnetId: z
 		.string()
 		.describe(
-			"Catalog id of the magnet for follow-up 2. Distinct from the others."
+			"Catalog id of the second follow-up magnet. Distinct from others."
 		),
+	reason: z.string().describe("One sentence explaining the magnet choices."),
+};
+
+const emailGenerationSchema = z.object({
+	...magnetSelectionShape,
 	email1Subject: z.string().describe("Email 1 subject line."),
 	email1Body: z
 		.string()
@@ -69,16 +105,33 @@ const generationSchema = z.object({
 	followUp2Body: z
 		.string()
 		.describe(`Follow-up 2 body. Must contain ${FIRST_NAME_PLACEHOLDER}.`),
-	reason: z.string().describe("One sentence explaining the magnet choices."),
 });
 
-/** Selected magnets plus the authored, post-level email template. */
+const dmGenerationSchema = z.object({
+	...magnetSelectionShape,
+	dm1Body: z.string().describe(`DM 1 body. Must contain ${DM_FIRST_NAME_TAG}.`),
+	dm2Body: z.string().describe(`DM 2 body. Must contain ${DM_FIRST_NAME_TAG}.`),
+	dm3Body: z.string().describe(`DM 3 body. Must contain ${DM_FIRST_NAME_TAG}.`),
+});
+
+/** Poster magnet plus selected SuperRecruiter magnets and authored emails. */
 export interface GeneratedPostSequence {
 	followUpOneLeadMagnetId: string;
 	followUpTwoLeadMagnetId: string;
+	posterLeadMagnet: string;
 	reason: string;
 	targetedLeadMagnetId: string;
 	template: EmailSequence;
+}
+
+/** Poster magnet plus selected SuperRecruiter magnets and authored DMs. */
+export interface GeneratedPostDmSequence {
+	followUpOneLeadMagnetId: string;
+	followUpTwoLeadMagnetId: string;
+	posterLeadMagnet: string;
+	reason: string;
+	sequence: DmSequence;
+	targetedLeadMagnetId: string;
 }
 
 function requireNonEmpty(value: string, field: string): string {
@@ -86,7 +139,7 @@ function requireNonEmpty(value: string, field: string): string {
 	if (trimmed === "") {
 		throw new Error(`Model returned an empty ${field}`);
 	}
-	// Normalize away em/en dashes so no stored template field can ship one.
+	// Normalize away em/en dashes so no stored copy field can ship one.
 	return stripEmDashes(trimmed);
 }
 
@@ -100,12 +153,34 @@ function requirePersonalizedBody(value: string, field: string): string {
 	return body;
 }
 
+function requireDmBody(value: string, field: string): string {
+	const body = requireNonEmpty(value, field);
+	if (!body.includes(DM_FIRST_NAME_TAG)) {
+		throw new Error(`${field} is missing the ${DM_FIRST_NAME_TAG} merge tag`);
+	}
+	return body;
+}
+
 /**
- * From scraped post content, select the post-level lead magnet sequence (3
- * distinct real magnets from the library) and author the 3-email template. The
- * model only chooses catalog ids; after it responds the ids are validated to
- * exist and be distinct via {@link resolveLeadMagnetSequence}, and each email
- * body is checked to be non-empty and to contain `${firstName}`.
+ * Derive the poster's first name for personalization, or `undefined` when no
+ * real name resolves (so the model drops the poster reference entirely). Only
+ * the first name is ever baked in ("Alex", not "Alex Papageorge").
+ */
+function derivePosterFirstName(posterName?: string | null): string | undefined {
+	const rawPosterName = posterName?.trim();
+	if (!rawPosterName) {
+		return;
+	}
+	const firstName = getFirstName(rawPosterName);
+	return firstName === DEFAULT_FIRST_NAME ? undefined : firstName;
+}
+
+/**
+ * From scraped post content, identify the poster's lead magnet, select our
+ * post-level lead magnet sequence (3 distinct real magnets), and author the
+ * 3-email template. The model only chooses catalog ids; after it responds the
+ * ids are validated to exist and be distinct via {@link resolveLeadMagnetSequence},
+ * and each email body is checked to be non-empty and to contain `${firstName}`.
  *
  * @throws If `postContent` is blank, the model returns unknown/duplicate ids, or
  *   any template field is empty / a body lacks the `${firstName}` placeholder.
@@ -115,19 +190,12 @@ export async function generatePostEmailSequence(input: {
 	posterName?: string | null;
 }): Promise<GeneratedPostSequence> {
 	const postContent = requireNonEmpty(input.postContent, "post content");
-	// Only the poster's first name is baked into the copy ("Alex", not "Alex
-	// Papageorge"); drop the poster entirely when no real name resolves.
-	const rawPosterName = input.posterName?.trim();
-	const derivedFirstName = rawPosterName
-		? getFirstName(rawPosterName)
-		: DEFAULT_FIRST_NAME;
-	const posterFirstName =
-		derivedFirstName === DEFAULT_FIRST_NAME ? undefined : derivedFirstName;
+	const posterFirstName = derivePosterFirstName(input.posterName);
 
 	const { output } = await generateText({
 		model: anthropic(SELECTION_MODEL),
-		output: Output.object({ schema: generationSchema }),
-		system: SYSTEM_PROMPT,
+		output: Output.object({ schema: emailGenerationSchema }),
+		system: EMAIL_SYSTEM_PROMPT,
 		prompt: posterFirstName
 			? `Poster first name: ${posterFirstName}\n\nLinkedIn post content:\n\n${postContent}`
 			: `LinkedIn post content:\n\n${postContent}`,
@@ -156,10 +224,67 @@ export async function generatePostEmailSequence(input: {
 	};
 
 	return {
+		posterLeadMagnet: requireNonEmpty(
+			output.posterLeadMagnet,
+			"posterLeadMagnet"
+		),
 		targetedLeadMagnetId: resolved.targeted.id,
 		followUpOneLeadMagnetId: resolved.followUpOne.id,
 		followUpTwoLeadMagnetId: resolved.followUpTwo.id,
 		template,
+		reason: output.reason,
+	};
+}
+
+/**
+ * From scraped post content, identify the poster's lead magnet, select our
+ * post-level lead magnet sequence (3 distinct real magnets), and author the
+ * 3-message LinkedIn DM sequence. Ids are validated via
+ * {@link resolveLeadMagnetSequence}; each DM body is checked to be non-empty and
+ * to contain the `{{firstname}}` merge tag (left in the stored copy; substituted
+ * per lead at generate time). The hard-to-fill role is baked in by the model.
+ *
+ * @throws If `postContent` is blank, the model returns unknown/duplicate ids, or
+ *   any DM body is empty / lacks the `{{firstname}}` merge tag.
+ */
+export async function generatePostDmSequence(input: {
+	postContent: string;
+	posterName?: string | null;
+}): Promise<GeneratedPostDmSequence> {
+	const postContent = requireNonEmpty(input.postContent, "post content");
+	const posterFirstName = derivePosterFirstName(input.posterName);
+
+	const { output } = await generateText({
+		model: anthropic(SELECTION_MODEL),
+		output: Output.object({ schema: dmGenerationSchema }),
+		system: DM_SYSTEM_PROMPT,
+		prompt: posterFirstName
+			? `Poster first name: ${posterFirstName}\n\nLinkedIn post content:\n\n${postContent}`
+			: `LinkedIn post content:\n\n${postContent}`,
+	});
+
+	// Throws on unknown or non-distinct ids.
+	const resolved = resolveLeadMagnetSequence({
+		targetedLeadMagnetId: output.targetedLeadMagnetId,
+		followUpOneLeadMagnetId: output.followUpOneLeadMagnetId,
+		followUpTwoLeadMagnetId: output.followUpTwoLeadMagnetId,
+	});
+
+	const sequence: DmSequence = {
+		dm1: requireDmBody(output.dm1Body, "dm1Body"),
+		dm2: requireDmBody(output.dm2Body, "dm2Body"),
+		dm3: requireDmBody(output.dm3Body, "dm3Body"),
+	};
+
+	return {
+		posterLeadMagnet: requireNonEmpty(
+			output.posterLeadMagnet,
+			"posterLeadMagnet"
+		),
+		targetedLeadMagnetId: resolved.targeted.id,
+		followUpOneLeadMagnetId: resolved.followUpOne.id,
+		followUpTwoLeadMagnetId: resolved.followUpTwo.id,
+		sequence,
 		reason: output.reason,
 	};
 }

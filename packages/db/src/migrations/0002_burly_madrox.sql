@@ -1,0 +1,1 @@
+ALTER TABLE `auto_emailing` ADD `poster_lead_magnet` text;

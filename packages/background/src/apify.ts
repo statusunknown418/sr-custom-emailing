@@ -8,6 +8,17 @@ import { requireEnv } from "./process-env";
  */
 const DEFAULT_LINKEDIN_POST_ACTOR_ID = "apimaestro/linkedin-post-detail";
 
+/**
+ * Default Apify actor used to harvest the commenters on a LinkedIn post.
+ * Override with `APIFY_LINKEDIN_COMMENTS_ACTOR_ID`. The actor accepts a `posts`
+ * array input and emits one root comment per dataset item with the commenter at
+ * `actor.{name,linkedinUrl}` and the text at `commentary`.
+ */
+const DEFAULT_LINKEDIN_COMMENTS_ACTOR_ID = "harvestapi/linkedin-post-comments";
+
+/** Default cap on commenters harvested per post (override `APIFY_COMMENTS_MAX_ITEMS`). */
+const COMMENTS_DEFAULT_MAX_ITEMS = 1000;
+
 const APIFY_API_BASE_URL = "https://api.apify.com/v2";
 
 /**
@@ -167,7 +178,7 @@ export function parseLinkedinPost(items: unknown[]): ParsedLinkedinPost {
 
 /**
  * Scrape a single LinkedIn post via Apify and parse out the main content and
- * poster name. Runs inside the `scrape-post` Trigger task (not the Worker), so
+ * poster name. Runs inside the scrape Trigger tasks (not the Worker), so
  * `APIFY_API_KEY` is read from `process.env`.
  *
  * @param originalPostUrl - The LinkedIn post URL to scrape.
@@ -184,4 +195,166 @@ export async function scrapeLinkedinPost(
 	return parseLinkedinPost(
 		await runApifyActorSync(token, actorId, originalPostUrl)
 	);
+}
+
+/** Top-level dataset-item fields probed for a comment's text, in priority order. */
+const COMMENT_TEXT_FIELDS = ["commentary", "comment", "text"] as const;
+
+/** Nested `actor`-object fields probed for the commenter's profile URL. */
+const COMMENTER_URL_FIELDS = ["linkedinUrl", "url", "profileUrl"] as const;
+
+/** A single LinkedIn commenter parsed from the comments dataset. */
+export interface Commenter {
+	comment: string;
+	name: string | null;
+	profileUrl: string;
+}
+
+/**
+ * Pure parser for the LinkedIn post-comments dataset. Each item is a root
+ * comment whose nested `actor` carries the commenter's name and profile URL.
+ * Isolated from the network call so the field-probing stays reviewable. Drops
+ * items without a commenter profile URL (cannot be enriched or contacted) and
+ * de-duplicates repeat commenters by profile URL, keeping the first comment.
+ *
+ * @param items - Raw dataset items from the comments actor run.
+ * @returns One {@link Commenter} per distinct profile URL.
+ */
+export function parseCommenters(items: unknown[]): Commenter[] {
+	const byProfile = new Map<string, Commenter>();
+	for (const item of items) {
+		const record = asRecord(item);
+		if (!record) {
+			continue;
+		}
+		const actor = asRecord(record.actor);
+		const profileUrl = actor
+			? firstNonEmptyString(actor, COMMENTER_URL_FIELDS)
+			: null;
+		if (!profileUrl) {
+			continue;
+		}
+		const key = profileUrl.toLowerCase();
+		if (byProfile.has(key)) {
+			continue;
+		}
+		byProfile.set(key, {
+			comment: firstNonEmptyString(record, COMMENT_TEXT_FIELDS) ?? "",
+			name: actor
+				? firstNonEmptyString(actor, AUTHOR_OBJECT_NAME_FIELDS)
+				: null,
+			profileUrl,
+		});
+	}
+	return [...byProfile.values()];
+}
+
+/**
+ * Start an asynchronous Apify run of the LinkedIn post-comments actor for one
+ * post, attaching an ad-hoc webhook that fires on every terminal run event. The
+ * run is NOT awaited to completion: Apify POSTs `webhookUrl` when it finishes,
+ * carrying the run's dataset id. Runs inside the harvest Trigger task (not the
+ * Worker), so `APIFY_API_KEY` is read from `process.env`.
+ *
+ * @param originalPostUrl - The LinkedIn post URL to harvest commenters from.
+ * @param webhookUrl - Our endpoint Apify calls on a terminal run event; carries
+ *   the flow flag in its path so the completion can be routed.
+ * @param webhookSecret - Shared secret sent as the `x-apify-webhook-secret`
+ *   header so the receiver can authenticate the callback.
+ * @returns The started run id (for logging/observability).
+ * @throws If `APIFY_API_KEY` is missing or the run fails to start.
+ */
+export async function startCommenterScrape(
+	originalPostUrl: string,
+	webhookUrl: string,
+	webhookSecret: string
+): Promise<string> {
+	const token = requireEnv("APIFY_API_KEY");
+	const actorId =
+		process.env.APIFY_LINKEDIN_COMMENTS_ACTOR_ID ??
+		DEFAULT_LINKEDIN_COMMENTS_ACTOR_ID;
+	const maxItemsOverride = Number.parseInt(
+		process.env.APIFY_COMMENTS_MAX_ITEMS ?? "",
+		10
+	);
+	const maxItems =
+		Number.isFinite(maxItemsOverride) && maxItemsOverride > 0
+			? maxItemsOverride
+			: COMMENTS_DEFAULT_MAX_ITEMS;
+
+	const webhooks = Buffer.from(
+		JSON.stringify([
+			{
+				eventTypes: [
+					"ACTOR.RUN.SUCCEEDED",
+					"ACTOR.RUN.FAILED",
+					"ACTOR.RUN.ABORTED",
+					"ACTOR.RUN.TIMED_OUT",
+				],
+				headersTemplate: JSON.stringify({
+					"x-apify-webhook-secret": webhookSecret,
+				}),
+				requestUrl: webhookUrl,
+			},
+		])
+	).toString("base64");
+
+	const actorPath = toApifyActorPath(actorId);
+	const response = await fetch(
+		`${APIFY_API_BASE_URL}/acts/${actorPath}/runs?webhooks=${encodeURIComponent(webhooks)}`,
+		{
+			body: JSON.stringify({
+				maxItems,
+				posts: [originalPostUrl],
+				scrapeReplies: false,
+			}),
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+			},
+			method: "POST",
+		}
+	);
+
+	if (!response.ok) {
+		throw new Error(await readApifyError(response));
+	}
+
+	const body = asRecord(await response.json());
+	const data = body ? asRecord(body.data) : null;
+	const runId = data && typeof data.id === "string" ? data.id : "";
+	if (!runId) {
+		throw new Error("Apify run start returned no run id");
+	}
+	return runId;
+}
+
+/**
+ * Fetch all dataset items for a finished Apify run by dataset id. Runs inside
+ * the forward Trigger task (not the Worker), so `APIFY_API_KEY` is read from
+ * `process.env`.
+ *
+ * @param datasetId - The run's default dataset id (from the Apify webhook).
+ * @returns The raw dataset items.
+ * @throws If `APIFY_API_KEY` is missing, the request fails, or the response is
+ *   not an array.
+ */
+export async function fetchApifyDatasetItems(
+	datasetId: string
+): Promise<unknown[]> {
+	const token = requireEnv("APIFY_API_KEY");
+	const response = await fetch(
+		`${APIFY_API_BASE_URL}/datasets/${encodeURIComponent(datasetId)}/items?clean=true&format=json`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+
+	if (!response.ok) {
+		throw new Error(await readApifyError(response));
+	}
+
+	const items: unknown = await response.json();
+	if (!Array.isArray(items)) {
+		throw new Error("Apify returned a non-array dataset response");
+	}
+	return items;
 }

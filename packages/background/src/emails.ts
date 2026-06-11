@@ -26,6 +26,26 @@ export interface EmailSequence {
 	followUp2: Email;
 }
 
+/**
+ * Per-lead merge tag in stored LinkedIn DM bodies. Authored copy keeps it
+ * verbatim; at generate time `applyDmLeadVariables` substitutes each lead's
+ * first name (parallel to the email flow's `${firstName}`). Double-curly avoids
+ * biome's `noTemplateCurlyInString`.
+ */
+export const DM_FIRST_NAME_TAG = "{{firstname}}";
+
+/**
+ * A post-level 3-message LinkedIn DM sequence (bodies only; DMs have no
+ * subject). Authored once per post by the model and stored on the
+ * `auto_emailing` row. `{{firstname}}` is the only token left in the copy; the
+ * hard-to-fill role and post context are baked in at authoring time.
+ */
+export interface DmSequence {
+	dm1: string;
+	dm2: string;
+	dm3: string;
+}
+
 /** Per-lead variables substituted into a stored template. */
 export interface LeadVariables {
 	firstName: string;
@@ -74,5 +94,24 @@ export function applyLeadVariables(
 		email1: fillEmail(template.email1, vars),
 		followUp1: fillEmail(template.followUp1, vars),
 		followUp2: fillEmail(template.followUp2, vars),
+	};
+}
+
+/**
+ * Substitute the per-lead first name into a stored DM sequence, producing the
+ * three bodies to write to the Sheet for one lead. Replaces every
+ * `{{firstname}}` merge tag with `vars.firstName`; the same `template` yields
+ * the same copy for every commenter on a post apart from the name. Pure: no I/O.
+ */
+export function applyDmLeadVariables(
+	template: DmSequence,
+	vars: LeadVariables
+): DmSequence {
+	const fillDm = (body: string): string =>
+		stripEmDashes(body.replaceAll(DM_FIRST_NAME_TAG, vars.firstName));
+	return {
+		dm1: fillDm(template.dm1),
+		dm2: fillDm(template.dm2),
+		dm3: fillDm(template.dm3),
 	};
 }

@@ -61,7 +61,7 @@ export function updatePostCache(
 	payload: PostCacheUpdatePayload
 ): Promise<z.infer<typeof updateResponseSchema>> {
 	return postInternal(
-		"/automation/internal/post-cache/update",
+		"/internal/post-cache/update",
 		payload,
 		updateResponseSchema
 	);
@@ -75,7 +75,7 @@ export function batchGetPostCache(
 	originalPostUrls: string[]
 ): Promise<BatchGetPostCacheResponse> {
 	return postInternal(
-		"/automation/internal/post-cache/batch-get",
+		"/internal/post-cache/batch-get",
 		{ originalPostUrls },
 		batchGetResponseSchema
 	);

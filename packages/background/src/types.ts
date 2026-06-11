@@ -1,20 +1,50 @@
 import { z } from "zod";
 
-/** Public API input: kick off scraping for one LinkedIn post. */
-export const startLinkedinScrapingPayloadSchema = z.object({
-	originalPostUrl: z.string().min(1),
-});
+/**
+ * Which flow owns a cached post row. `comment_tracking` rows carry the 3
+ * LinkedIn DM bodies; `someone_else` rows carry the 3-email sequence pushed to
+ * Instantly. Both share the scrape + magnet-selection columns.
+ */
+export const POST_SOURCES = ["comment_tracking", "someone_else"] as const;
+export const postSourceSchema = z.enum(POST_SOURCES);
+export type PostSource = z.infer<typeof postSourceSchema>;
 
-export type StartLinkedinScrapingPayload = z.infer<
-	typeof startLinkedinScrapingPayloadSchema
->;
-
-/** Payload for the `scrape-post` Trigger task. */
+/** Public API input + Trigger task payload: scrape one LinkedIn post. */
 export const scrapePostPayloadSchema = z.object({
 	originalPostUrl: z.string().min(1),
 });
 
 export type ScrapePostPayload = z.infer<typeof scrapePostPayloadSchema>;
+
+/**
+ * Trigger payload for `harvest-commenters`: harvest the commenters on one
+ * LinkedIn post for a given flow. `flow` is the flag carried through Apify ->
+ * our webhook -> Clay so the enriched leads route back to the matching generate
+ * endpoint.
+ */
+export const harvestCommentersPayloadSchema = z.object({
+	flow: postSourceSchema,
+	originalPostUrl: z.string().min(1),
+});
+
+export type HarvestCommentersPayload = z.infer<
+	typeof harvestCommentersPayloadSchema
+>;
+
+/**
+ * Trigger payload for `forward-commenters-to-clay`: emitted by the Apify
+ * webhook route once a commenter run finishes. Identifies the run's dataset and
+ * the flow so the task can fetch the commenters and forward them to Clay.
+ */
+export const forwardCommentersPayloadSchema = z.object({
+	datasetId: z.string().min(1),
+	flow: postSourceSchema,
+	originalPostUrl: z.string().min(1),
+});
+
+export type ForwardCommentersPayload = z.infer<
+	typeof forwardCommentersPayloadSchema
+>;
 
 /** Normalize a missing/null/undefined Clay field to "". */
 const flexString = z
@@ -24,10 +54,11 @@ const flexString = z
 
 /**
  * A single lead row delivered by Clay. Only `originalPostUrl` is required (it
- * links the lead to its cached post). `email` is nullish (Instantly drops
- * emailless rows on import). Every other field tolerates a missing/null value
- * from Clay's enrichment and normalizes to "" so a partial lead never crashes
- * the run; downstream consumers always receive strings.
+ * links the lead to its cached post). `email` is nullish (the Instantly flow
+ * drops emailless leads; the comment-tracking flow drops leads without a
+ * LinkedIn URL instead). Every other field tolerates a missing/null value from
+ * Clay's enrichment and normalizes to "" so a partial lead never crashes the
+ * run; downstream consumers always receive strings.
  */
 export const clayLeadSchema = z.object({
 	email: z.string().nullish(),
@@ -47,37 +78,53 @@ export const clayLeadSchema = z.object({
 
 export type ClayLead = z.infer<typeof clayLeadSchema>;
 
-/** Public API input / `email-generation` task payload: at least one lead. */
-export const emailGenerationPayloadSchema = z.object({
+/**
+ * Public API input + Trigger task payload for both generate flows: a batch of
+ * at least one lead. Each flow enforces its own per-lead requirement (LinkedIn
+ * URL for DMs, email for Instantly) at runtime.
+ */
+export const leadBatchPayloadSchema = z.object({
 	leads: z.array(clayLeadSchema).min(1),
 });
 
-export type EmailGenerationPayload = z.infer<
-	typeof emailGenerationPayloadSchema
->;
+export type LeadBatchPayload = z.infer<typeof leadBatchPayloadSchema>;
 
-/**
- * Body for the internal `post-cache/update` endpoint. The `scrape-post` task
- * sends this to the Worker after scraping, selecting the magnets, and authoring
- * the post-level email template; the Worker writes it to D1. Shared here so the
- * task and the endpoint agree on the contract without the API package depending
- * on background (which would cycle). Template bodies use `${firstName}` as the
- * only per-lead placeholder.
- */
-export const postCacheUpdatePayloadSchema = z.object({
+/** Scrape + magnet-selection fields common to every cache update. */
+const postCacheUpdateBase = {
 	originalPostUrl: z.string().min(1),
 	postContent: z.string().min(1),
 	posterName: z.string().nullish(),
+	posterLeadMagnet: z.string().min(1),
 	targetedLeadMagnetId: z.string().min(1),
 	followUpOneLeadMagnetId: z.string().min(1),
 	followUpTwoLeadMagnetId: z.string().min(1),
-	email1Subject: z.string().min(1),
-	email1Body: z.string().min(1),
-	followUp1Subject: z.string().min(1),
-	followUp1Body: z.string().min(1),
-	followUp2Subject: z.string().min(1),
-	followUp2Body: z.string().min(1),
-});
+};
+
+/**
+ * Body for the internal `post-cache/update` endpoint, discriminated on
+ * `source`. The `comment_tracking` variant carries the 3 DM bodies; the
+ * `someone_else` variant carries the 6 email template fields. Required string
+ * fields are `.min(1)` so a row is never cached half-written.
+ */
+export const postCacheUpdatePayloadSchema = z.discriminatedUnion("source", [
+	z.object({
+		...postCacheUpdateBase,
+		source: z.literal("comment_tracking"),
+		dm1Body: z.string().min(1),
+		dm2Body: z.string().min(1),
+		dm3Body: z.string().min(1),
+	}),
+	z.object({
+		...postCacheUpdateBase,
+		source: z.literal("someone_else"),
+		email1Subject: z.string().min(1),
+		email1Body: z.string().min(1),
+		followUp1Subject: z.string().min(1),
+		followUp1Body: z.string().min(1),
+		followUp2Subject: z.string().min(1),
+		followUp2Body: z.string().min(1),
+	}),
+]);
 
 export type PostCacheUpdatePayload = z.infer<
 	typeof postCacheUpdatePayloadSchema
@@ -92,12 +139,18 @@ export type PostCacheBatchGetPayload = z.infer<
 	typeof postCacheBatchGetPayloadSchema
 >;
 
-/** A cached post row returned by `post-cache/batch-get`. */
+/**
+ * A cached post row returned by `post-cache/batch-get`. All copy fields are
+ * nullable; which set is populated depends on `source`. Consumers narrow on
+ * `source` + non-null fields before use.
+ */
 export const postCacheRowSchema = z.object({
 	originalPostUrl: z.string(),
+	source: postSourceSchema.nullable(),
 	scraped: z.boolean(),
 	postContent: z.string().nullable(),
 	posterName: z.string().nullable(),
+	posterLeadMagnet: z.string().nullable(),
 	targetedLeadMagnetId: z.string().nullable(),
 	followUpOneLeadMagnetId: z.string().nullable(),
 	followUpTwoLeadMagnetId: z.string().nullable(),
@@ -107,6 +160,9 @@ export const postCacheRowSchema = z.object({
 	followUp1Body: z.string().nullable(),
 	followUp2Subject: z.string().nullable(),
 	followUp2Body: z.string().nullable(),
+	dm1Body: z.string().nullable(),
+	dm2Body: z.string().nullable(),
+	dm3Body: z.string().nullable(),
 });
 
 export type PostCacheRow = z.infer<typeof postCacheRowSchema>;

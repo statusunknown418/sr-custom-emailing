@@ -1,99 +1,59 @@
+import type { sheets_v4 } from "googleapis/build/src/apis/sheets/index.js";
 import {
 	auth,
 	sheets as createSheetsClient,
 } from "googleapis/build/src/apis/sheets/index.js";
-
 import { requireEnv } from "./process-env";
 
+/** The Google Sheets v4 client (named to avoid a `ReturnType<typeof>` contract). */
+type SheetsClient = sheets_v4.Sheets;
+
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-const DEFAULT_SHEET_TAB = "Sheet1";
+const DEFAULT_SHEET_TAB = "Tracking";
 
 /**
- * One Instantly-ready row of the output Google Sheet. Fields combine the Clay
- * lead, the resolved post-level lead magnets, and the rendered 3-email
- * sequence. Members are alphabetical; the on-sheet column order is defined by
- * {@link SHEET_COLUMNS}.
+ * One row of the comment-tracking output Google Sheet: the lead's identity plus
+ * the 3 LinkedIn DM bodies with the lead's first name already substituted in.
+ * Members are alphabetical; the on-sheet column order is {@link SHEET_COLUMNS}.
  */
-export interface EmailSheetRow {
-	companyDescription: string;
-	companyEmployees: string;
-	companyIndustry: string;
-	companyLinkedin: string;
-	companyName: string;
-	companyUrl: string;
-	country: string;
-	email: string;
-	email1Body: string;
-	email1Subject: string;
-	firstName: string;
-	followUp1Body: string;
-	followUp1Subject: string;
-	followUp2Body: string;
-	followUp2Subject: string;
-	followUpOneDescription: string;
-	followUpOneLeadMagnet: string;
-	followUpOnePainLine: string;
-	followUpTwoDescription: string;
-	followUpTwoLeadMagnet: string;
-	followUpTwoPainLine: string;
+export interface DmSheetRow {
+	date: string;
+	followUp: string;
+	followUp2: string;
+	followUp3: string;
+	linkedinUrl: string;
 	name: string;
-	originalComment: string;
-	originalPostUrl: string;
-	personalLinkedinUrl: string;
-	targetedLeadMagnet: string;
-	targetedLeadMagnetDescription: string;
-	targetedPainLine: string;
 }
 
 /**
- * Stable on-sheet column order (matches the Instantly CSV contract). Each entry
- * is a key of {@link EmailSheetRow}; this is the single source of truth for
- * column ordering.
+ * Stable on-sheet column order. Headers are what Google Sheets receives when the
+ * tab is empty; keys select values from {@link DmSheetRow}. Each row's DM bodies
+ * already have the lead's first name substituted in (no merge tag left).
  */
 const SHEET_COLUMNS = [
-	"email",
-	"firstName",
-	"name",
-	"companyName",
-	"companyUrl",
-	"companyLinkedin",
-	"companyEmployees",
-	"companyIndustry",
-	"companyDescription",
-	"country",
-	"personalLinkedinUrl",
-	"originalComment",
-	"originalPostUrl",
-	"targetedLeadMagnet",
-	"targetedLeadMagnetDescription",
-	"targetedPainLine",
-	"followUpOneLeadMagnet",
-	"followUpOneDescription",
-	"followUpOnePainLine",
-	"followUpTwoLeadMagnet",
-	"followUpTwoDescription",
-	"followUpTwoPainLine",
-	"email1Subject",
-	"email1Body",
-	"followUp1Subject",
-	"followUp1Body",
-	"followUp2Subject",
-	"followUp2Body",
-] as const satisfies readonly (keyof EmailSheetRow)[];
+	{ key: "date", header: "Date" },
+	{ key: "name", header: "Name" },
+	{ key: "linkedinUrl", header: "LinkedIn URL" },
+	{ key: "followUp", header: "Follow Up" },
+	{ key: "followUp2", header: "2nd Follow Up" },
+	{ key: "followUp3", header: "3rd Follow Up" },
+] as const satisfies readonly {
+	key: keyof DmSheetRow;
+	header: string;
+}[];
 
-export interface AppendEmailRowsResult {
+export interface AppendDmRowsResult {
 	rowsWritten: number;
 	sheetUrl: string;
 }
 
 /**
- * Write the column-name header row when the target tab is still empty. Instantly
- * maps CSV columns and custom variables ({@code {{firstName}}}, {@code {{email1Body}}})
- * by header text, so the sheet must carry one. A non-empty `A1` means the header
- * already exists, so later appends skip this.
+ * Write the column-name header row when the target tab is still empty so columns
+ * can be mapped by name. A non-empty `A1` means the header already exists, so
+ * later appends skip this.
  */
 async function ensureHeaderRow(
-	sheets: ReturnType<typeof createSheetsClient>,
+	sheets: SheetsClient,
 	spreadsheetId: string,
 	tab: string
 ): Promise<void> {
@@ -110,28 +70,50 @@ async function ensureHeaderRow(
 		spreadsheetId,
 		range: `${tab}!A1`,
 		valueInputOption: "RAW",
-		requestBody: { values: [[...SHEET_COLUMNS]] },
+		requestBody: { values: [SHEET_COLUMNS.map(({ header }) => header)] },
 	});
 }
 
+async function resolveSheetTab(
+	sheets: SheetsClient,
+	spreadsheetId: string,
+	preferredTab: string
+): Promise<string> {
+	const metadata = await sheets.spreadsheets.get({
+		spreadsheetId,
+		fields: "sheets.properties.title",
+	});
+	const tabs =
+		metadata.data.sheets
+			?.map((sheet) => sheet.properties?.title)
+			.filter((title): title is string => Boolean(title)) ?? [];
+
+	if (tabs.includes(preferredTab)) {
+		return preferredTab;
+	}
+
+	const [onlyTab] = tabs;
+	if (onlyTab && tabs.length === 1) {
+		return onlyTab;
+	}
+
+	throw new Error(
+		`Sheet tab "${preferredTab}" not found. Available tabs: ${tabs.join(", ")}`
+	);
+}
+
 /**
- * Append one row per lead to the configured Google Sheet for CSV export to
- * Instantly. Authenticates with a service account
- * (`GOOGLE_SERVICE_ACCOUNT_JSON`) that must have edit access to
- * `GOOGLE_SHEET_ID`; the tab defaults to `Sheet1` unless `GOOGLE_SHEET_TAB`
- * is set.
- *
- * @param rows - Rows to append, already rendered by the email-generation task.
- * @returns The Sheet URL and the number of rows written.
- * @throws If required Google environment variables are missing.
+ * Append one row per lead to the configured Google Sheet. Authenticates with a
+ * service account (`GOOGLE_SERVICE_ACCOUNT_JSON`) that must have edit access to
+ * `GOOGLE_SHEET_ID`; the tab defaults to `Sheet1` unless `GOOGLE_SHEET_TAB` is
+ * set. Rows without a LinkedIn URL are dropped (they cannot be DM'd).
  */
-export async function appendEmailRows(
-	rows: EmailSheetRow[]
-): Promise<AppendEmailRowsResult> {
-	// Defense in depth: never push a row without an email, even if a caller
-	// forgets to filter. Instantly drops emailless rows on import anyway.
-	const writableRows = rows.filter((row) => row.email.trim() !== "");
-	const credentialsJson = requireEnv("GOOGLE_SERVICE_ACCOUNT_JSON");
+export async function appendDmRows(
+	rows: DmSheetRow[]
+): Promise<AppendDmRowsResult> {
+	// Defense in depth: never push a row that cannot be DM'd, even if a caller
+	// forgets to filter.
+	const writableRows = rows.filter((row) => row.linkedinUrl.trim() !== "");
 	const spreadsheetId = requireEnv("GOOGLE_SHEET_ID");
 	const tab = process.env.GOOGLE_SHEET_TAB ?? DEFAULT_SHEET_TAB;
 	const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
@@ -140,26 +122,42 @@ export async function appendEmailRows(
 		return { sheetUrl, rowsWritten: 0 };
 	}
 
+	const credentialsJson = requireEnv("GOOGLE_SERVICE_ACCOUNT_JSON");
+	const credentials = JSON.parse(credentialsJson);
+	const serviceAccountEmail =
+		typeof credentials.client_email === "string"
+			? credentials.client_email
+			: "unknown service account";
 	const googleAuth = new auth.GoogleAuth({
-		credentials: JSON.parse(credentialsJson),
+		credentials,
 		scopes: [SHEETS_SCOPE],
 	});
 	const sheets = createSheetsClient({ version: "v4", auth: googleAuth });
+	try {
+		const resolvedTab = await resolveSheetTab(sheets, spreadsheetId, tab);
+		await ensureHeaderRow(sheets, spreadsheetId, resolvedTab);
 
-	await ensureHeaderRow(sheets, spreadsheetId, tab);
+		const values = writableRows.map((row) =>
+			SHEET_COLUMNS.map(({ key }) => row[key])
+		);
 
-	const values = writableRows.map((row) =>
-		SHEET_COLUMNS.map((key) => row[key])
-	);
+		const response = await sheets.spreadsheets.values.append({
+			spreadsheetId,
+			range: `${resolvedTab}!A1`,
+			valueInputOption: "RAW",
+			requestBody: { values },
+		});
 
-	const response = await sheets.spreadsheets.values.append({
-		spreadsheetId,
-		range: `${tab}!A1`,
-		valueInputOption: "RAW",
-		requestBody: { values },
-	});
+		const rowsWritten =
+			response.data.updates?.updatedRows ?? writableRows.length;
 
-	const rowsWritten = response.data.updates?.updatedRows ?? writableRows.length;
+		return { sheetUrl, rowsWritten };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
 
-	return { sheetUrl, rowsWritten };
+		throw new Error(
+			`Google Sheets write failed for ${sheetUrl} tab "${tab}" as ${serviceAccountEmail}: ${message}`,
+			{ cause: error }
+		);
+	}
 }

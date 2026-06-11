@@ -10,6 +10,8 @@ import { initLogger } from "evlog";
 import { type EvlogVariables, evlog } from "evlog/hono";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { handleApifyCommentersWebhook } from "./apify-webhook";
+import { handleDiscordInteraction } from "./discord";
 
 initLogger({
 	env: { service: "sr-custom-emailing-server" },
@@ -71,6 +73,9 @@ app.use("/*", async (c, next) => {
 
 	await next();
 });
+
+app.post("/discord/interactions", (c) => handleDiscordInteraction(c));
+app.post("/apify/commenters/:flow", (c) => handleApifyCommentersWebhook(c));
 
 app.get("/", (c) => c.text("See /rpc and the appropiate route!"));
 

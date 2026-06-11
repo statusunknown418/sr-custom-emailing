@@ -1,8 +1,9 @@
 import type { RouterClient } from "@orpc/server";
 
 import { publicProcedure } from "../index";
-import { automationsRouter } from "./automation";
 import { internalRouter } from "./internal";
+import { ourLinkedinCommentTrackingRouter } from "./our-linkedin-comment-tracking";
+import { someoneElsePostScrapingRouter } from "./someone-else-post-scraping";
 
 export const appRouter = {
 	healthCheck: publicProcedure
@@ -10,7 +11,8 @@ export const appRouter = {
 			method: "GET",
 		})
 		.handler(() => "OK"),
-	automations: automationsRouter,
+	ourLinkedinCommentTracking: ourLinkedinCommentTrackingRouter,
+	someoneElsePostScraping: someoneElsePostScrapingRouter,
 	internal: internalRouter,
 };
 

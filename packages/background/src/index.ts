@@ -1,24 +1,36 @@
 import { tasks } from "@trigger.dev/sdk";
-import type { emailGeneration } from "./trigger/email-generation.task";
-import type { scrapePost } from "./trigger/scrape-post.task";
+
+import type { commentTrackingGenerate } from "./trigger/comment-tracking-generate.task";
+import type { commentTrackingScrape } from "./trigger/comment-tracking-scrape.task";
+import type { forwardCommentersToClay } from "./trigger/forward-commenters-to-clay.task";
+import type { harvestCommenters } from "./trigger/harvest-commenters.task";
+import type { someoneElseGenerate } from "./trigger/someone-else-generate.task";
+import type { someoneElseScrape } from "./trigger/someone-else-scrape.task";
 import {
-	type EmailGenerationPayload,
-	emailGenerationPayloadSchema,
+	type ForwardCommentersPayload,
+	forwardCommentersPayloadSchema,
+	type HarvestCommentersPayload,
+	harvestCommentersPayloadSchema,
+	type LeadBatchPayload,
+	leadBatchPayloadSchema,
 	type ScrapePostPayload,
 	scrapePostPayloadSchema,
 } from "./types";
 
 export type {
 	ClayLead,
-	EmailGenerationPayload,
+	ForwardCommentersPayload,
+	HarvestCommentersPayload,
+	LeadBatchPayload,
+	PostSource,
 	ScrapePostPayload,
-	StartLinkedinScrapingPayload,
 } from "./types";
 export {
 	clayLeadSchema,
-	emailGenerationPayloadSchema,
+	forwardCommentersPayloadSchema,
+	harvestCommentersPayloadSchema,
+	leadBatchPayloadSchema,
 	scrapePostPayloadSchema,
-	startLinkedinScrapingPayloadSchema,
 } from "./types";
 
 /** Handle returned after enqueuing a Trigger task. */
@@ -26,26 +38,78 @@ export interface TriggerTaskResult {
 	id: string;
 }
 
-/** Enqueue the `scrape-post` task for one LinkedIn post URL. */
-export async function triggerScrapePost(
+/** Enqueue the comment-tracking scrape task (our post -> DM template). */
+export async function triggerCommentTrackingScrape(
 	payload: ScrapePostPayload
 ): Promise<TriggerTaskResult> {
 	const parsedPayload = scrapePostPayloadSchema.parse(payload);
-	const handle = await tasks.trigger<typeof scrapePost>(
-		"scrape-post",
+	const handle = await tasks.trigger<typeof commentTrackingScrape>(
+		"comment-tracking-scrape",
 		parsedPayload
 	);
 
 	return { id: handle.id };
 }
 
-/** Enqueue the `email-generation` task for a batch of Clay leads. */
-export async function triggerEmailGeneration(
-	payload: EmailGenerationPayload
+/** Enqueue the comment-tracking generate task (leads -> DM rows in the Sheet). */
+export async function triggerCommentTrackingGenerate(
+	payload: LeadBatchPayload
 ): Promise<TriggerTaskResult> {
-	const parsedPayload = emailGenerationPayloadSchema.parse(payload);
-	const handle = await tasks.trigger<typeof emailGeneration>(
-		"email-generation",
+	const parsedPayload = leadBatchPayloadSchema.parse(payload);
+	const handle = await tasks.trigger<typeof commentTrackingGenerate>(
+		"comment-tracking-generate",
+		parsedPayload
+	);
+
+	return { id: handle.id };
+}
+
+/** Enqueue the someone-else scrape task (their post -> email template). */
+export async function triggerSomeoneElseScrape(
+	payload: ScrapePostPayload
+): Promise<TriggerTaskResult> {
+	const parsedPayload = scrapePostPayloadSchema.parse(payload);
+	const handle = await tasks.trigger<typeof someoneElseScrape>(
+		"someone-else-scrape",
+		parsedPayload
+	);
+
+	return { id: handle.id };
+}
+
+/** Enqueue the someone-else generate task (leads -> Instantly campaign). */
+export async function triggerSomeoneElseGenerate(
+	payload: LeadBatchPayload
+): Promise<TriggerTaskResult> {
+	const parsedPayload = leadBatchPayloadSchema.parse(payload);
+	const handle = await tasks.trigger<typeof someoneElseGenerate>(
+		"someone-else-generate",
+		parsedPayload
+	);
+
+	return { id: handle.id };
+}
+
+/** Enqueue the commenter harvest task (post -> Apify comments -> webhook -> Clay). */
+export async function triggerHarvestCommenters(
+	payload: HarvestCommentersPayload
+): Promise<TriggerTaskResult> {
+	const parsedPayload = harvestCommentersPayloadSchema.parse(payload);
+	const handle = await tasks.trigger<typeof harvestCommenters>(
+		"harvest-commenters",
+		parsedPayload
+	);
+
+	return { id: handle.id };
+}
+
+/** Enqueue the Clay-forward task for a finished commenter run (from the webhook). */
+export async function triggerForwardCommentersToClay(
+	payload: ForwardCommentersPayload
+): Promise<TriggerTaskResult> {
+	const parsedPayload = forwardCommentersPayloadSchema.parse(payload);
+	const handle = await tasks.trigger<typeof forwardCommentersToClay>(
+		"forward-commenters-to-clay",
 		parsedPayload
 	);
 

@@ -356,6 +356,7 @@ export function leadMagnetExists(id: string): boolean {
 	return getLeadMagnetById(id) !== undefined;
 }
 
+/** SuperRecruiter lead magnets selected as our offer sequence for a scraped post. */
 export interface LeadMagnetSequenceIds {
 	followUpOneLeadMagnetId: string;
 	followUpTwoLeadMagnetId: string;
@@ -369,9 +370,9 @@ export interface ResolvedLeadMagnetSequence {
 }
 
 /**
- * Resolve a 3-id sequence to lead magnets, enforcing the post-level invariants:
- * every id must exist in the library and all three must be distinct. Throws an
- * `Error` describing the violation otherwise.
+ * Resolve our 3-id sequence to lead magnets, enforcing the post-level
+ * invariants: every SuperRecruiter id must exist in the library and all three
+ * must be distinct. Throws an `Error` describing the violation otherwise.
  */
 export function resolveLeadMagnetSequence(
 	ids: LeadMagnetSequenceIds
