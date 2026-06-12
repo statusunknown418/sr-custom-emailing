@@ -12,7 +12,8 @@ selection, but differ in copy style and destination:
   LinkedIn posts get short **LinkedIn DMs**. Output: a Google Sheet row per
   commenter.
 - **Flow B — `someoneElsePostScraping`**: leads from **someone else's** post get
-  cold **emails** pushed into an **Instantly** campaign.
+  cold **emails** pushed into an **Instantly** campaign, and each emailed lead is
+  also created in **Close** as a plain CRM lead (no opportunity / pipeline).
 
 Both: scrape the post (Apify) -> Claude identifies the poster's lead magnet,
 selects 3 distinct SuperRecruiter magnets, and authors the copy -> cache on D1
@@ -44,7 +45,9 @@ selects 3 distinct SuperRecruiter magnets, and authors the copy -> cache on D1
 - **Flow B (emails):** Claude authors the 3-email sequence (subject + body x3)
   with the `${firstName}` placeholder. The generate step substitutes
   `${firstName}` per lead (Claude's `${...}` is not an Instantly tag) and pushes
-  the rendered copy to one Instantly campaign as **custom variables**.
+  the rendered copy to one Instantly campaign as **custom variables**. The same
+  emailed leads are then created in Close as plain leads (company = lead, prospect
+  = its contact); Instantly fires first, Close second.
 - **No automated tests.** Verification = `bun run check-types`,
   `bun x ultracite check`, `bun run db:generate` (clean), and manual smoke. Keep
   helpers pure and parsers isolated, but add no `*.test.*` files.
@@ -66,7 +69,7 @@ Flow B: someoneElsePostScraping
                         -> POST /internal/post-cache/update (source=someone_else, email1/followUp1/2)
   POST /someone-else-post-scraping/generate -> trigger someone-else-generate
       someone-else-generate: drop leads w/o email -> group by url -> /internal/post-cache/batch-get
-                        -> fail on any missing/unscraped -> substitute ${firstName} -> addLeadsToCampaign (Instantly)
+                        -> fail on any missing/unscraped -> substitute ${firstName} -> addLeadsToCampaign (Instantly) -> addLeadsToClose (Close)
 
 Commenter harvest (both flows; fires alongside each scrape above)
   scrape command -> trigger harvest-commenters
@@ -98,6 +101,19 @@ followUp1Subject, followUp1Body, followUp2Subject, followUp2Body } }`. The
 campaign's sequence steps reference the custom variables by name (e.g.
 `{{email1Body}}`). Leads without an email are skipped.
 
+## Close contract (Flow B)
+
+`POST https://api.close.com/api/v1/lead/`, HTTP Basic auth sent verbatim as
+`Basic <CLOSE_ENCODED_API_KEY>` (the env var holds the pre-base64-encoded
+`apikey:` credential). Plain lead — no opportunity / pipeline. Body: `name` =
+company name, `url` = company website, one `contacts[]` entry
+(`emails:[{email, type:"work"}]`, `name`, contact LinkedIn URL custom field),
+plus lead custom fields — Lead Source (constant `Lead Scraping`), Company
+LinkedIn URL, Company Type (`[staffinClassification]`, a multi-select choice, so
+the value must match an existing Close option). Empty optional fields are
+omitted; a lead with neither an email nor a company name is skipped. The
+org-specific custom-field ids are hardcoded in `close.ts`.
+
 ## Files (where things live)
 
 - `packages/db/src/schema/auto-emailing.ts` — table (+`source`, `dm1/2/3_body`).
@@ -118,6 +134,7 @@ campaign's sequence steps reference the custom variables by name (e.g.
   `clayLeadSchema` field names + `flow`).
 - `packages/background/src/google-sheets.ts` — `appendDmRows` + `DmSheetRow`.
 - `packages/background/src/instantly.ts` — `addLeadsToCampaign` + `InstantlyLead`.
+- `packages/background/src/close.ts` — `addLeadsToClose` + `CloseLead` (Flow B Close sink).
 - `packages/background/src/internal-api.ts` — task->Worker cache client.
 - `packages/background/src/trigger/*.task.ts` — the 6 tasks (4 flow tasks +
   `harvest-commenters`, `forward-commenters-to-clay`).
@@ -144,6 +161,7 @@ Trigger.dev project env (task-side, read from `process.env`):
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB?` (Flow A)
 - `INSTANTLY_API_KEY`, `INSTANTLY_CAMPAIGN_ID` (Flow B)
+- `CLOSE_ENCODED_API_KEY` (Flow B; base64-encoded `apikey:` for Close Basic auth)
 - `INTERNAL_API_URL`, `INTERNAL_API_SECRET`
 - `CLAY_ENRICHER_TABLE_URL` + `CLAY_ENRICHER_AUTH_TOKEN` (commenter batches POSTed
   to the Clay enricher table; token sent as the `x-clay-webhook-auth` header)

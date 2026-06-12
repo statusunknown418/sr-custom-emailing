@@ -13,11 +13,11 @@ Flow A — ourLinkedinCommentTracking (our posts -> LinkedIn DMs -> Google Sheet
   POST /our-linkedin-comment-tracking/generate -> trigger comment-tracking-generate
       group leads -> /internal/post-cache/batch-get -> write DM bodies verbatim -> Google Sheet
 
-Flow B — someoneElsePostScraping (their posts -> emails -> Instantly)
+Flow B — someoneElsePostScraping (their posts -> emails -> Instantly + Close)
   POST /someone-else-post-scraping/scrape   -> trigger someone-else-scrape
       Apify -> Claude (3 magnets + 3 emails) -> /internal/post-cache/update (source=someone_else)
   POST /someone-else-post-scraping/generate -> trigger someone-else-generate
-      group leads -> /internal/post-cache/batch-get -> substitute ${firstName} -> Instantly campaign
+      group leads -> /internal/post-cache/batch-get -> substitute ${firstName} -> Instantly campaign -> Close leads
 
 Commenter harvest (both flows; fires on every scrape command, incl. Discord)
   scrape -> trigger harvest-commenters -> async Apify (harvestapi/linkedin-post-comments) + completion webhook
@@ -71,12 +71,20 @@ Placeholders (`APIFY_API_KEY=123`, etc.) WILL fail at runtime.
   default `Sheet1`). **Share the Sheet with the SA `client_email` as Editor** or
   writes 403.
 
-### 1.4 Instantly (Flow B)
+### 1.4 Instantly + Close (Flow B)
 
-- API key -> `INSTANTLY_API_KEY`. Build/choose one campaign; copy its id ->
-  `INSTANTLY_CAMPAIGN_ID`. The campaign's sequence steps should reference the
-  custom variables `{{email1Subject}}`, `{{email1Body}}`, `{{followUp1Subject}}`,
-  `{{followUp1Body}}`, `{{followUp2Subject}}`, `{{followUp2Body}}`.
+- Instantly: API key -> `INSTANTLY_API_KEY`. Build/choose one campaign; copy its
+  id -> `INSTANTLY_CAMPAIGN_ID`. The campaign's sequence steps should reference
+  the custom variables `{{email1Subject}}`, `{{email1Body}}`,
+  `{{followUp1Subject}}`, `{{followUp1Body}}`, `{{followUp2Subject}}`,
+  `{{followUp2Body}}`.
+- Close: base64-encode the `apikey:` HTTP Basic credential (key as username,
+  empty password) -> `CLOSE_ENCODED_API_KEY` (sent verbatim as `Basic <value>`).
+  Each emailed lead is created as a plain Close lead (no opportunity / pipeline).
+  The org-specific custom-field ids (Lead Source / Company LinkedIn URL / Company
+  Type / contact LinkedIn URL) are hardcoded in `close.ts`; `Company Type` is a
+  choice field, so `staffinClassification` values must match a Close option or
+  that lead's POST 400s. `Lead Source` is the constant `Lead Scraping`.
 
 ### 1.5 Internal callback secret + URL
 
@@ -111,6 +119,7 @@ Placeholders (`APIFY_API_KEY=123`, etc.) WILL fail at runtime.
 | `ANTHROPIC_API_KEY`                                                   | —                              | ✅                      |
 | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB?` | —                              | ✅ (Flow A)             |
 | `INSTANTLY_API_KEY`, `INSTANTLY_CAMPAIGN_ID`                          | —                              | ✅ (Flow B)             |
+| `CLOSE_ENCODED_API_KEY`                                              | —                              | ✅ (Flow B)             |
 | `INTERNAL_API_URL`                                                    | —                              | ✅                      |
 | `CLAY_ENRICHER_TABLE_URL`, `CLAY_ENRICHER_AUTH_TOKEN`                 | —                              | ✅                      |
 | `APIFY_WEBHOOK_SECRET`                                                | ✅ (identical)                 | ✅ (identical)          |
@@ -227,7 +236,7 @@ Use an unscraped URL -> run FAILS `Cannot generate DMs; posts not scraped yet:
 
 ---
 
-## Phase 5 — Flow B (someone else -> emails -> Instantly)
+## Phase 5 — Flow B (someone else -> emails -> Instantly + Close)
 
 ### 5.1 Scrape
 
@@ -248,9 +257,12 @@ curl -s -X POST "$BASE/api-reference/someone-else-post-scraping/generate" \
 # expect {"runId":"run_…"}
 ```
 
-Watch `someone-else-generate` -> SUCCEEDED; log "Pushed leads to Instantly"
-`added:1`. In Instantly the lead appears in the campaign with the custom
-variables populated and `${firstName}` already substituted in the bodies.
+Watch `someone-else-generate` -> SUCCEEDED; logs "Pushed leads to Instantly"
+`added:1` then "Created leads in Close" `added:1`. In Instantly the lead appears
+in the campaign with the custom variables populated and `${firstName}` already
+substituted in the bodies. In Close a new lead exists (company name + website,
+one contact with the work email + LinkedIn URL, Lead Source `Lead Scraping`); no
+opportunity is attached.
 
 ### 5.3 Negative — generate before scrape
 
@@ -286,6 +298,8 @@ Requires the **deployed** Worker (Apify must reach `/apify/commenters/:flow`).
 | Invalid magnet id          | (rare)                                     | scrape FAILS `Unknown lead magnet id(s)` / `must be distinct`                                         |
 | Google not shared          | unshare Sheet from SA, run Flow A generate | task fails with Google 403                                                                            |
 | Instantly bad key/campaign | wrong key/campaign id                      | `someone-else-generate` fails `Instantly create-lead failed …`                                        |
+| Close bad key              | wrong `CLOSE_ENCODED_API_KEY`              | `someone-else-generate` fails `Close create-lead failed …` (after the Instantly push)                 |
+| Close bad Company Type     | `staffinClassification` not a Close option | that lead's Close POST 400s -> `someone-else-generate` fails `Close create-lead failed …`              |
 | Duplicate run              | re-run a generate with same lead           | a second row/lead is added (append/push not idempotent; `maxAttempts:1` only blocks auto-retry dupes) |
 | Bad webhook secret         | wrong/absent `x-apify-webhook-secret`      | `/apify/commenters/:flow` 401; no Clay forward                                                        |
 | Apify comments run failed  | aborted/timed-out commenter run            | webhook route logs + 200; no `forward-commenters-to-clay`                                             |
@@ -297,7 +311,8 @@ Requires the **deployed** Worker (Apify must reach `/apify/commenters/:flow`).
 
 1. Phase 0 green. 2. Flow A: scrape SUCCEEDED, row complete with DM bodies, cache
    hit works, DM rows in the Sheet, generate-before-scrape fails. 3. Flow B: scrape
-   SUCCEEDED with email fields, leads land in Instantly with custom variables,
+   SUCCEEDED with email fields, leads land in Instantly with custom variables and
+   a matching plain lead is created in Close,
    generate-before-scrape fails. 4. Commenter harvest: `harvest-commenters` +
    `forward-commenters-to-clay` SUCCEEDED and the Clay table receives the
    `flow`-tagged batch.

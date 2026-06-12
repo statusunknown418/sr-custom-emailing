@@ -48,6 +48,14 @@ real keys.
    to one Instantly campaign (`INSTANTLY_CAMPAIGN_ID`) via `POST /api/v2/leads`
    with the rendered email copy as `custom_variables`. `${firstName}` is
    substituted per lead before pushing (Instantly only fills `{{...}}` tags).
+   **Close sink added** (`close.ts`, new): `addLeadsToClose` also creates each
+   emailed lead in Close as a plain lead (no opportunity / pipeline) via
+   `POST https://api.close.com/api/v1/lead/`, Basic auth from
+   `CLOSE_ENCODED_API_KEY` (pre-base64 `apikey:`, sent verbatim). Runs after the
+   Instantly push in `someone-else-generate`. Maps company -> lead, prospect ->
+   contact, plus the org's lead/contact custom fields (Lead Source constant
+   `Lead Scraping`, Company LinkedIn URL, Company Type = `[staffinClassification]`
+   choice, contact LinkedIn URL); ids hardcoded in `close.ts`.
 7. **Tasks:** `scrape-post`/`email-generation` removed; replaced by
    `comment-tracking-scrape`, `comment-tracking-generate`, `someone-else-scrape`,
    `someone-else-generate` (ids match file names). `triggerXxx` wrappers in

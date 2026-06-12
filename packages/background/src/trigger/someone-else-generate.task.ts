@@ -1,5 +1,6 @@
 import { logger, schemaTask } from "@trigger.dev/sdk";
 
+import { addLeadsToClose, type CloseLead } from "../close";
 import { applyLeadVariables, type EmailSequence } from "../emails";
 import { addLeadsToCampaign, type InstantlyLead } from "../instantly";
 import { batchGetPostCache } from "../internal-api";
@@ -148,6 +149,25 @@ export const someoneElseGenerate = schemaTask({
 		logger.info("Pushed leads to Instantly", {
 			added: result.added,
 			skipped: result.skipped,
+			leadCount: leads.length,
+		});
+
+		const closeLeads = emailLeads.map(
+			(lead) =>
+				({
+					companyLinkedin: lead.companyLinkedin,
+					companyName: lead.companyName,
+					companyType: lead.staffinClassification,
+					companyUrl: lead.companyUrl,
+					contactName: lead.name,
+					email: lead.email ?? "",
+					personalLinkedinUrl: lead.personalLinkedinUrl,
+				}) satisfies CloseLead
+		);
+		const closeResult = await addLeadsToClose(closeLeads);
+		logger.info("Created leads in Close", {
+			added: closeResult.added,
+			skipped: closeResult.skipped,
 			leadCount: leads.length,
 		});
 
