@@ -69,34 +69,6 @@ export function stripEmDashes(text: string): string {
 	return text.replace(LONG_DASH_RE, "-").replace(REPEATED_HYPHEN_RE, "-");
 }
 
-function fill(text: string, vars: LeadVariables): string {
-	return text.replaceAll(FIRST_NAME_PLACEHOLDER, vars.firstName);
-}
-
-function fillEmail(email: Email, vars: LeadVariables): Email {
-	return {
-		subject: stripEmDashes(fill(email.subject, vars)),
-		body: stripEmDashes(fill(email.body, vars)),
-	};
-}
-
-/**
- * Apply per-lead variables to a stored post-level template, producing the
- * sequence to write to the Sheet for one lead. The same `template` yields the
- * same copy for every commenter on a post; only `${firstName}` differs. Pure:
- * no I/O.
- */
-export function applyLeadVariables(
-	template: EmailSequence,
-	vars: LeadVariables
-): EmailSequence {
-	return {
-		email1: fillEmail(template.email1, vars),
-		followUp1: fillEmail(template.followUp1, vars),
-		followUp2: fillEmail(template.followUp2, vars),
-	};
-}
-
 /**
  * Substitute the per-lead first name into a stored DM sequence, producing the
  * three bodies to write to the Sheet for one lead. Replaces every

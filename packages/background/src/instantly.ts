@@ -6,11 +6,11 @@ const INSTANTLY_LEADS_URL = "https://api.instantly.ai/api/v2/leads";
 const MAX_CONCURRENT_PUSHES = 5;
 
 /**
- * A lead to add to the configured Instantly campaign. The authored,
- * fully-rendered email copy travels as `customVariables`; the campaign's
- * sequence steps reference them by name (e.g. `{{email1Body}}`). Values are
- * already substituted (no `${firstName}` left), since Instantly only fills its
- * own `{{...}}` merge tags.
+ * A lead to add to the configured Instantly campaign. The post's selected lead
+ * magnets travel as `customVariables` (`postername`, `postlabel`,
+ * `ourdescription`, `painline`, `seconddescription`, `secondpainline`, plus the
+ * per-lead `firstname`); the campaign's sequence steps reference them by name
+ * (e.g. `{{postlabel}}`). Instantly fills its own `{{...}}` merge tags.
  */
 export interface InstantlyLead {
 	companyName: string;

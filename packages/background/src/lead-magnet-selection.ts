@@ -23,6 +23,10 @@ const LEAD_MAGNET_CATALOG = LEAD_MAGNETS.map(
 		`- ${magnet.id} [${magnet.category}] ${magnet.leadMagnet}: ${magnet.description} (pain: so you don't ${magnet.painLine})`
 ).join("\n");
 
+const DM3_CAMPAIGN_OFFER =
+	"so you can interview candidates not active on job boards? If you hire someone, consider them yours - on the house.";
+const LEADING_ROLE_ARTICLE_RE = /^(?:a|an|the)\s+/i;
+
 const EMAIL_SYSTEM_PROMPT = `You write cold outreach for a recruiting tools company, targeting people who commented on a LinkedIn lead-magnet post.
 
 Do three things from the post content:
@@ -56,17 +60,17 @@ Do two things from the post content:
    - targetedLeadMagnetId: best SuperRecruiter fit, pitched in DM 2.
    - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary magnets, distinct from the others.
 
-Then write a 3-message LinkedIn DM sequence (dm1Body, dm2Body, dm3Body). These are short, casual chat messages - NOT emails. No subject lines, no signatures, plain text, 1 to 3 short lines each.
+Then write a 3-message LinkedIn DM sequence (dm1Body, dm2Body) plus dm3HardToFillRole. These are short, casual chat messages - NOT emails. No subject lines, no signatures, plain text, 1 to 3 short lines each.
 
 Rules for the copy:
-- The ONLY merge tag allowed is ${DM_FIRST_NAME_TAG} - a downstream tool fills it per recipient, so leave it verbatim. Every message must open with "Hey ${DM_FIRST_NAME_TAG}" so each body contains ${DM_FIRST_NAME_TAG}. Do NOT use \${...} or invent any other {{...}} tag.
-- Bake the hard-to-fill role into DM 3 as plain text: infer the role the poster is hiring for (or the role most relevant to the post) and write it out (e.g. "a senior backend engineer"). If the post gives no hiring/role signal, make DM 3 a soft offer to help with their hiring instead. NEVER leave a {{...}} tag for the role.
+- The ONLY merge tag allowed is ${DM_FIRST_NAME_TAG} - a downstream tool fills it per recipient, so leave it verbatim. DM 1 and DM 2 must open with "Hey ${DM_FIRST_NAME_TAG}" so each body contains ${DM_FIRST_NAME_TAG}. Do NOT use \${...} or invent any other {{...}} tag.
+- For DM 3, return only dm3HardToFillRole: infer the role the poster is hiring for (or the role most relevant to the post), without a leading article (e.g. "senior backend engineer", not "a senior backend engineer"). If the post gives no hiring/role signal, use "hard-to-fill role". NEVER return a {{...}} tag for the role.
+- The application will render DM 3 exactly as: "Hey ${DM_FIRST_NAME_TAG}\nSaw your hiring for a <dm3HardToFillRole> - want me to run a campaign for you ${DM3_CAMPAIGN_OFFER}"
 - NEVER use em dashes or en dashes (— or –). Use a single hyphen "-" or rephrase.
 
 Structure to follow:
 - dm1: friendly check-in on the resource they engaged with. "Hey ${DM_FIRST_NAME_TAG}, were you able to <use/apply the poster's resource>? Curious if it's helping your <workflow/hiring>."
 - dm2: "Hey ${DM_FIRST_NAME_TAG} - forgot to mention, we also made <targeted SuperRecruiter magnet> that <benefit> so you don't have to <pain>. Want to check it out?"
-- dm3: "Hey ${DM_FIRST_NAME_TAG}, saw you're hiring for <inferred role> - want me to run a campaign for you?" (or a soft hiring-help offer if no role signal).
 
 Catalog:
 ${LEAD_MAGNET_CATALOG}`;
@@ -111,7 +115,9 @@ const dmGenerationSchema = z.object({
 	...magnetSelectionShape,
 	dm1Body: z.string().describe(`DM 1 body. Must contain ${DM_FIRST_NAME_TAG}.`),
 	dm2Body: z.string().describe(`DM 2 body. Must contain ${DM_FIRST_NAME_TAG}.`),
-	dm3Body: z.string().describe(`DM 3 body. Must contain ${DM_FIRST_NAME_TAG}.`),
+	dm3HardToFillRole: z
+		.string()
+		.describe("Role to render in DM 3, without a leading article."),
 });
 
 /** Poster magnet plus selected SuperRecruiter magnets and authored emails. */
@@ -161,12 +167,30 @@ function requireDmBody(value: string, field: string): string {
 	return body;
 }
 
+function requireHardToFillRole(value: string): string {
+	const role = requireNonEmpty(value, "dm3HardToFillRole").replace(
+		LEADING_ROLE_ARTICLE_RE,
+		""
+	);
+	if (role.includes("{{") || role.includes("}}")) {
+		throw new Error("dm3HardToFillRole must not contain merge tags");
+	}
+	return role;
+}
+
+export function renderDm3Body(hardToFillRole: string): string {
+	return `Hey ${DM_FIRST_NAME_TAG}
+Saw your hiring for a ${requireHardToFillRole(hardToFillRole)} - want me to run a campaign for you ${DM3_CAMPAIGN_OFFER}`;
+}
+
 /**
  * Derive the poster's first name for personalization, or `undefined` when no
  * real name resolves (so the model drops the poster reference entirely). Only
  * the first name is ever baked in ("Alex", not "Alex Papageorge").
  */
-function derivePosterFirstName(posterName?: string | null): string | undefined {
+export function derivePosterFirstName(
+	posterName?: string | null
+): string | undefined {
 	const rawPosterName = posterName?.trim();
 	if (!rawPosterName) {
 		return;
@@ -273,7 +297,7 @@ export async function generatePostDmSequence(input: {
 	const sequence: DmSequence = {
 		dm1: requireDmBody(output.dm1Body, "dm1Body"),
 		dm2: requireDmBody(output.dm2Body, "dm2Body"),
-		dm3: requireDmBody(output.dm3Body, "dm3Body"),
+		dm3: renderDm3Body(output.dm3HardToFillRole),
 	};
 
 	return {

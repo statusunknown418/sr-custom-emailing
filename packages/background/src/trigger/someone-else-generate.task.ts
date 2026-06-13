@@ -1,9 +1,10 @@
 import { logger, schemaTask } from "@trigger.dev/sdk";
 
 import { addLeadsToClose, type CloseLead } from "../close";
-import { applyLeadVariables, type EmailSequence } from "../emails";
 import { addLeadsToCampaign, type InstantlyLead } from "../instantly";
 import { batchGetPostCache } from "../internal-api";
+import { derivePosterFirstName } from "../lead-magnet-selection";
+import { getLeadMagnetById } from "../lead-magnets";
 import { getFirstName } from "../names";
 import { leadBatchPayloadSchema, type PostCacheRow } from "../types";
 import { normalizePostUrl } from "../url";
@@ -12,52 +13,66 @@ import { normalizePostUrl } from "../url";
 const WHITESPACE_RE = /\s+/;
 
 /**
- * Narrow a cached row to its email template only when it was scraped for the
- * someone-else flow and all six template fields are present. Returns `null` for
- * pending, partially-written, or wrong-flow rows so the task can fail with the
- * exact URL list rather than push blank copy.
+ * Per-post Instantly merge variables shared by every lead scraped from one
+ * post. The campaign templates reference them by name: `{{postername}}`,
+ * `{{postlabel}}`, `{{ourdescription}}`, `{{painline}}` (the targeted magnet,
+ * step 1) and `{{seconddescription}}`, `{{secondpainline}}` (the first
+ * follow-up magnet, step 2). The per-lead `{{firstname}}` is added at push time.
  */
-function toEmailTemplate(row: PostCacheRow): EmailSequence | null {
-	const {
-		email1Subject,
-		email1Body,
-		followUp1Subject,
-		followUp1Body,
-		followUp2Subject,
-		followUp2Body,
-	} = row;
+interface PostCustomVars {
+	ourdescription: string;
+	painline: string;
+	postername: string;
+	postlabel: string;
+	seconddescription: string;
+	secondpainline: string;
+}
 
+/**
+ * Build a scraped someone-else post's merge variables, or `null` when the row
+ * is pending, wrong-flow, or its selected magnet ids no longer resolve to the
+ * catalog — so the task fails with the exact URL list rather than push an email
+ * with blank variables.
+ */
+function toPostCustomVars(row: PostCacheRow): PostCustomVars | null {
+	const { targetedLeadMagnetId, followUpOneLeadMagnetId } = row;
 	if (
 		!(
 			row.scraped &&
 			row.source === "someone_else" &&
-			email1Subject &&
-			email1Body &&
-			followUp1Subject &&
-			followUp1Body &&
-			followUp2Subject &&
-			followUp2Body
+			targetedLeadMagnetId &&
+			followUpOneLeadMagnetId
 		)
 	) {
 		return null;
 	}
 
+	const targeted = getLeadMagnetById(targetedLeadMagnetId);
+	const second = getLeadMagnetById(followUpOneLeadMagnetId);
+	if (!(targeted && second)) {
+		return null;
+	}
+
 	return {
-		email1: { subject: email1Subject, body: email1Body },
-		followUp1: { subject: followUp1Subject, body: followUp1Body },
-		followUp2: { subject: followUp2Subject, body: followUp2Body },
+		postername: derivePosterFirstName(row.posterName) ?? "",
+		postlabel: targeted.postLabel,
+		ourdescription: targeted.description,
+		painline: targeted.painLine,
+		seconddescription: second.description,
+		secondpainline: second.painLine,
 	};
 }
 
 /**
  * Someone-else flow: push one lead per Clay row into the configured Instantly
- * campaign, carrying the post's authored email copy as custom variables.
+ * campaign, carrying the post's selected lead magnets as Instantly merge
+ * variables (the templates fill `{{postername}}`/`{{postlabel}}`/etc.).
  *
  * Flow: drop leads with no email -> normalize and group by `originalPostUrl` ->
  * fetch cached posts via `post-cache/batch-get` -> fail with the exact URL list
- * if any post is missing or not fully scraped -> substitute `${firstName}` per
- * lead into the stored template -> add each lead to the campaign. Pushing is not
- * idempotent, so `maxAttempts` is 1; re-trigger manually if a run fails.
+ * if any post is missing, not fully scraped, or its magnet ids no longer resolve
+ * -> add each lead with the post's merge variables plus its own `{{firstname}}`.
+ * Pushing is not idempotent, so `maxAttempts` is 1; re-trigger manually on fail.
  */
 export const someoneElseGenerate = schemaTask({
 	id: "someone-else-generate",
@@ -92,17 +107,15 @@ export const someoneElseGenerate = schemaTask({
 		];
 
 		const { rows } = await batchGetPostCache(normalizedUrls);
-		const templateByUrl = new Map(
-			rows.map((row) => [row.originalPostUrl, row])
-		);
+		const rowByUrl = new Map(rows.map((row) => [row.originalPostUrl, row]));
 
-		const readyByUrl = new Map<string, EmailSequence>();
+		const readyByUrl = new Map<string, PostCustomVars>();
 		const missing: string[] = [];
 		for (const url of normalizedUrls) {
-			const row = templateByUrl.get(url);
-			const template = row ? toEmailTemplate(row) : null;
-			if (template) {
-				readyByUrl.set(url, template);
+			const row = rowByUrl.get(url);
+			const postVars = row ? toPostCustomVars(row) : null;
+			if (postVars) {
+				readyByUrl.set(url, postVars);
 			} else {
 				missing.push(url);
 			}
@@ -116,14 +129,11 @@ export const someoneElseGenerate = schemaTask({
 
 		const instantlyLeads = emailLeads.map((lead) => {
 			const url = normalizePostUrl(lead.originalPostUrl);
-			const template = readyByUrl.get(url);
-			if (!template) {
+			const postVars = readyByUrl.get(url);
+			if (!postVars) {
 				throw new Error(`Missing cached post for ${url}`);
 			}
 
-			const rendered = applyLeadVariables(template, {
-				firstName: getFirstName(lead.name),
-			});
 			const [firstNamePart = "", ...lastNameParts] = lead.name
 				.trim()
 				.split(WHITESPACE_RE)
@@ -135,12 +145,8 @@ export const someoneElseGenerate = schemaTask({
 				lastName: lastNameParts.join(" "),
 				companyName: lead.companyName,
 				customVariables: {
-					email1Subject: rendered.email1.subject,
-					email1Body: rendered.email1.body,
-					followUp1Subject: rendered.followUp1.subject,
-					followUp1Body: rendered.followUp1.body,
-					followUp2Subject: rendered.followUp2.subject,
-					followUp2Body: rendered.followUp2.body,
+					firstname: getFirstName(lead.name),
+					...postVars,
 				},
 			} satisfies InstantlyLead;
 		});
