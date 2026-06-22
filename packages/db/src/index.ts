@@ -20,11 +20,10 @@ interface UpsertScrapedPostBase {
 	targetedLeadMagnetId: string;
 }
 
-/** Comment-tracking post: the 3 LinkedIn DM bodies are authoritative. */
+/** Comment-tracking post: the 2 LinkedIn DM bodies are authoritative. */
 export interface UpsertCommentTrackingPostInput extends UpsertScrapedPostBase {
 	dm1Body: string;
 	dm2Body: string;
-	dm3Body: string;
 	source: "comment_tracking";
 }
 
@@ -67,7 +66,7 @@ export async function upsertScrapedPost(
 			? {
 					dm1Body: input.dm1Body,
 					dm2Body: input.dm2Body,
-					dm3Body: input.dm3Body,
+					dm3Body: null,
 				}
 			: {
 					email1Subject: input.email1Subject,

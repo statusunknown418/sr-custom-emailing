@@ -57,7 +57,7 @@ client / Clay ──HTTP──▶│  /rpc (RPC)   ·   /api-reference (OpenAPI)
 
 **Two flows, one cache.** `auto_emailing` is unique on `original_post_url` and
 carries a `source` discriminator (`comment_tracking` | `someone_else`) that
-selects which copy columns are authoritative (3 DM bodies vs. 6 email fields).
+selects which copy columns are authoritative (2 DM bodies vs. 6 email fields).
 Scraping, magnet selection, and the cache are shared; only authoring style and
 the generate-step sink differ. See `impl-plan.md` for the field-level contract.
 

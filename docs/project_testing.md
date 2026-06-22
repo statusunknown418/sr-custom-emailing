@@ -9,7 +9,7 @@ this is the runbook.
 ```
 Flow A — ourLinkedinCommentTracking (our posts -> LinkedIn DMs -> Google Sheet)
   POST /our-linkedin-comment-tracking/scrape   -> trigger comment-tracking-scrape
-      Apify -> Claude (3 magnets + 3 DM bodies) -> /internal/post-cache/update (source=comment_tracking)
+      Apify -> Claude (3 magnets + 2 DM bodies) -> /internal/post-cache/update (source=comment_tracking)
   POST /our-linkedin-comment-tracking/generate -> trigger comment-tracking-generate
       group leads -> /internal/post-cache/batch-get -> write DM bodies verbatim -> Google Sheet
 
@@ -75,9 +75,11 @@ Placeholders (`APIFY_API_KEY=123`, etc.) WILL fail at runtime.
 
 - Instantly: API key -> `INSTANTLY_API_KEY`. Build/choose one campaign; copy its
   id -> `INSTANTLY_CAMPAIGN_ID`. The campaign's sequence steps should reference
-  the custom variables `{{email1Subject}}`, `{{email1Body}}`,
-  `{{followUp1Subject}}`, `{{followUp1Body}}`, `{{followUp2Subject}}`,
-  `{{followUp2Body}}`.
+  `{{firstname}}`, `{{posterfullname}}`, `{{postlabel}}`, `{{article}}`,
+  `{{what}}`, `{{solvesthis}}`, `{{painline}}`, `{{followup1article}}`,
+  `{{followup1what}}`, `{{followup1solvesthis}}`, `{{followup1painline}}`,
+  `{{followup2article}}`, `{{followup2what}}`, `{{followup2solvesthis}}`, and
+  `{{followup2painline}}`.
 - Close: base64-encode the `apikey:` HTTP Basic credential (key as username,
   empty password) -> `CLOSE_ENCODED_API_KEY` (sent verbatim as `Basic <value>`).
   Each emailed lead is created as a plain Close lead (no opportunity / pipeline).
@@ -206,8 +208,8 @@ curl -s -X POST "$BASE/api-reference/internal/post-cache/batch-get" \
   -d "{\"originalPostUrls\":[\"$POST_URL\"]}" | jq
 ```
 
-Expect `scraped:true`, `source:"comment_tracking"`, `dm1Body/dm2Body/dm3Body`
-non-null, each containing `{{firstname}}`; the 6 email fields null.
+Expect `scraped:true`, `source:"comment_tracking"`, `dm1Body/dm2Body`
+non-null, each containing `{{firstname}}`; `dm3Body` and the 6 email fields null.
 
 ### 4.4 Cache hit
 
@@ -225,9 +227,11 @@ curl -s -X POST "$BASE/api-reference/our-linkedin-comment-tracking/generate" \
 ### 4.6 Watch run + Sheet
 
 - `comment-tracking-generate` SUCCEEDED; log "Appended DM rows" `rowsWritten:1`.
-- Sheet has one row, columns: `Date | Name | LinkedIn URL | Follow Up | 2nd
-Follow Up | 3rd Follow Up`. The 3 Follow Up cells are the DM bodies with
-  `{{firstname}}` substituted to the lead's first name (`Jane` for `Jane Doe`).
+- Sheet has one row, columns: `Date Added | Person's Name | LinkedIn URL |
+  LinkedIn Follow Up DM | LinkedIn Follow Up DM II | Company | Status | Lead
+  Magnet / Asset Requested | Source Post URL | Notes`. The 2 DM cells have
+  `{{firstname}}` substituted to the lead's first name (`Jane` for `Jane Doe`);
+  `Status` is `Needs DM`; `Notes` is blank.
 
 ### 4.7 Negative — generate before scrape
 
@@ -259,8 +263,14 @@ curl -s -X POST "$BASE/api-reference/someone-else-post-scraping/generate" \
 
 Watch `someone-else-generate` -> SUCCEEDED; logs "Pushed leads to Instantly"
 `added:1` then "Created leads in Close" `added:1`. In Instantly the lead appears
-in the campaign with the custom variables populated and `${firstName}` already
-substituted in the bodies. In Close a new lead exists (company name + website,
+in the campaign with those custom variables populated: poster full name,
+lowercase three-word `postlabel`, primary `article` (`a`/`an`),
+`what`/`solvesthis`/`painline`, follow-up one
+`followup1article`/`followup1what`/`followup1solvesthis`/`followup1painline`,
+follow-up two
+`followup2article`/`followup2what`/`followup2solvesthis`/`followup2painline`,
+and per-lead `firstname`.
+In Close a new lead exists (company name + website,
 one contact with the work email + LinkedIn URL, Lead Source `Lead Scraping`); no
 opportunity is attached.
 

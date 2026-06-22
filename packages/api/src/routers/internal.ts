@@ -31,7 +31,6 @@ export const internalRouter = {
 					source: "comment_tracking",
 					dm1Body: input.dm1Body,
 					dm2Body: input.dm2Body,
-					dm3Body: input.dm3Body,
 				});
 			} else {
 				await upsertScrapedPost({

@@ -37,17 +37,21 @@ selects 3 distinct SuperRecruiter magnets, and authors the copy -> cache on D1
   to the matching generate endpoint (it picks the URL from `flow`). `flow` is the
   flag that survives the Apify -> webhook -> Clay round trip. Async (not
   run-sync) because a 1000-comment run can exceed Apify's 300s sync cap.
-- **Flow A (DMs):** Claude authors 3 short DM bodies (no subjects). `{{firstname}}`
-  is a **per-lead merge tag** kept verbatim in the stored copy; the hard-to-fill
-  role is **inferred from the post and baked in** by Claude. The generate step
-  substitutes `{{firstname}}` per lead (`getFirstName(lead.name)`) before writing
-  to the Sheet.
-- **Flow B (emails):** Claude authors the 3-email sequence (subject + body x3)
-  with the `${firstName}` placeholder. The generate step substitutes
-  `${firstName}` per lead (Claude's `${...}` is not an Instantly tag) and pushes
-  the rendered copy to one Instantly campaign as **custom variables**. The same
-  emailed leads are then created in Close as plain leads (company = lead, prospect
-  = its contact); Instantly fires first, Close second.
+- **Flow A (DMs):** Claude authors DM 1; the app renders DM 2 from the selected
+  SuperRecruiter magnet using `<a/an> <what> that <benefit> so you don't have to
+  <pain>`. `{{firstname}}` is a **per-lead merge tag** kept verbatim in the
+  stored copy. The generate step substitutes `{{firstname}}` per lead
+  (`getFirstName(lead.name)`) before writing to the Sheet.
+- **Flow B (emails):** Claude authors the 3-email sequence for cache completeness,
+  but the Instantly campaign uses granular custom variables from the selected
+  magnet sequence: poster full name, 3-word post label, primary `article`
+  (`a`/`an` for `what`), `what`, `solvesthis`, `painline`, follow-up one
+  `followup1article`/`followup1what`/`followup1solvesthis`/`followup1painline`,
+  follow-up two
+  `followup2article`/`followup2what`/`followup2solvesthis`/`followup2painline`,
+  and per-lead `firstname`. The same emailed leads are then created in Close as
+  plain leads (company = lead, prospect = its contact);
+  Instantly fires first, Close second.
 - **No automated tests.** Verification = `bun run check-types`,
   `bun x ultracite check`, `bun run db:generate` (clean), and manual smoke. Keep
   helpers pure and parsers isolated, but add no `*.test.*` files.
@@ -57,8 +61,8 @@ selects 3 distinct SuperRecruiter magnets, and authors the copy -> cache on D1
 ```
 Flow A: ourLinkedinCommentTracking
   POST /our-linkedin-comment-tracking/scrape  -> D1 check; insert pending (source=comment_tracking); trigger comment-tracking-scrape
-      comment-tracking-scrape: Apify -> generatePostDmSequence (3 magnets + 3 DM bodies)
-                            -> POST /internal/post-cache/update (source=comment_tracking, dm1/2/3)
+      comment-tracking-scrape: Apify -> generatePostDmSequence (3 magnets + 2 DM bodies)
+                            -> POST /internal/post-cache/update (source=comment_tracking, dm1/2)
   POST /our-linkedin-comment-tracking/generate -> trigger comment-tracking-generate
       comment-tracking-generate: drop leads w/o LinkedIn URL -> group by url -> /internal/post-cache/batch-get
                             -> fail on any missing/unscraped -> write DM rows verbatim -> Google Sheet
@@ -69,7 +73,7 @@ Flow B: someoneElsePostScraping
                         -> POST /internal/post-cache/update (source=someone_else, email1/followUp1/2)
   POST /someone-else-post-scraping/generate -> trigger someone-else-generate
       someone-else-generate: drop leads w/o email -> group by url -> /internal/post-cache/batch-get
-                        -> fail on any missing/unscraped -> substitute ${firstName} -> addLeadsToCampaign (Instantly) -> addLeadsToClose (Close)
+                        -> fail on any missing/unscraped -> addLeadsToCampaign (Instantly custom vars) -> addLeadsToClose (Close)
 
 Commenter harvest (both flows; fires alongside each scrape above)
   scrape command -> trigger harvest-commenters
@@ -86,20 +90,23 @@ the OpenAPI prefix `/api-reference`.
 ## Google Sheet contract (Flow A)
 
 One row per commenter; columns in order:
-`Date | Name | LinkedIn URL | Follow Up | 2nd Follow Up | 3rd Follow Up`.
-The 3 "Follow Up" columns are the 3 authored DM bodies with the commenter's
-first name substituted in (`{{firstname}}` -> `getFirstName(Name)`).
-`appendDmRows` writes the header row when the tab is empty. Rows without a
-LinkedIn URL are dropped (cannot be DM'd).
+`Date Added | Person's Name | LinkedIn URL | LinkedIn Follow Up DM | LinkedIn Follow Up DM II | Company | Status | Lead Magnet / Asset Requested | Source Post URL | Notes`.
+The 2 "LinkedIn Follow Up DM" columns are the 2 DM bodies with the commenter's
+first name substituted in (`{{firstname}}` -> `getFirstName(Name)`). `Status`
+is written as `Needs DM`; `Notes` is blank.
+`appendDmRows` writes or upgrades the header row before appending. Rows without
+a LinkedIn URL are dropped (cannot be DM'd).
 
 ## Instantly contract (Flow B)
 
 `POST https://api.instantly.ai/api/v2/leads`, `Authorization: Bearer
 INSTANTLY_API_KEY`, body `{ campaign: INSTANTLY_CAMPAIGN_ID, email, first_name,
-last_name, company_name, custom_variables: { email1Subject, email1Body,
-followUp1Subject, followUp1Body, followUp2Subject, followUp2Body } }`. The
-campaign's sequence steps reference the custom variables by name (e.g.
-`{{email1Body}}`). Leads without an email are skipped.
+last_name, company_name, custom_variables: { firstname, posterfullname,
+postlabel, article, what, solvesthis, painline, followup1article, followup1what,
+followup1solvesthis, followup1painline, followup2article, followup2what,
+followup2solvesthis, followup2painline } }`. Campaign sequence steps reference
+those custom variables by name (e.g. `{{posterfullname}}`).
+Leads without an email are skipped.
 
 ## Close contract (Flow B)
 

@@ -8,7 +8,7 @@ import { internalProcedure } from "../auth";
 import { runScrape } from "../scrape-service";
 
 /**
- * Tracking commenters on OUR LinkedIn posts: scrape the post, author a 3-message
+ * Tracking commenters on OUR LinkedIn posts: scrape the post, author a 2-message
  * LinkedIn DM sequence, then emit one DM row per commenter to the Google Sheet.
  */
 export const ourLinkedinCommentTrackingRouter = {

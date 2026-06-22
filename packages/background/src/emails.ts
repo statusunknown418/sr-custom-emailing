@@ -35,15 +35,13 @@ export interface EmailSequence {
 export const DM_FIRST_NAME_TAG = "{{firstname}}";
 
 /**
- * A post-level 3-message LinkedIn DM sequence (bodies only; DMs have no
- * subject). Authored once per post by the model and stored on the
- * `auto_emailing` row. `{{firstname}}` is the only token left in the copy; the
- * hard-to-fill role and post context are baked in at authoring time.
+ * A post-level 2-message LinkedIn DM sequence (bodies only; DMs have no
+ * subject). Authored once per post and stored on the `auto_emailing` row.
+ * `{{firstname}}` is the only token left in the copy.
  */
 export interface DmSequence {
 	dm1: string;
 	dm2: string;
-	dm3: string;
 }
 
 /** Per-lead variables substituted into a stored template. */
@@ -71,9 +69,9 @@ export function stripEmDashes(text: string): string {
 
 /**
  * Substitute the per-lead first name into a stored DM sequence, producing the
- * three bodies to write to the Sheet for one lead. Replaces every
- * `{{firstname}}` merge tag with `vars.firstName`; the same `template` yields
- * the same copy for every commenter on a post apart from the name. Pure: no I/O.
+ * two bodies to write to the Sheet for one lead. Replaces every `{{firstname}}`
+ * merge tag with `vars.firstName`; the same `template` yields the same copy for
+ * every commenter on a post apart from the name. Pure: no I/O.
  */
 export function applyDmLeadVariables(
 	template: DmSequence,
@@ -84,6 +82,5 @@ export function applyDmLeadVariables(
 	return {
 		dm1: fillDm(template.dm1),
 		dm2: fillDm(template.dm2),
-		dm3: fillDm(template.dm3),
 	};
 }

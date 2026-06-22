@@ -9,6 +9,8 @@ export const POST_SOURCES = ["comment_tracking", "someone_else"] as const;
 export const postSourceSchema = z.enum(POST_SOURCES);
 export type PostSource = z.infer<typeof postSourceSchema>;
 
+export const STAFFING_FIRM_CLASSIFICATION = "staffing_firm" as const;
+
 /** Public API input + Trigger task payload: scrape one LinkedIn post. */
 export const scrapePostPayloadSchema = z.object({
 	originalPostUrl: z.string().min(1),
@@ -78,6 +80,17 @@ export const clayLeadSchema = z.object({
 
 export type ClayLead = z.infer<typeof clayLeadSchema>;
 
+export function isStaffingFirmLead(
+	lead: Pick<ClayLead, "staffinClassification">
+): boolean {
+	const classification = lead.staffinClassification.trim().toLowerCase();
+
+	return (
+		classification === STAFFING_FIRM_CLASSIFICATION ||
+		classification === "staffing firm"
+	);
+}
+
 /**
  * Public API input + Trigger task payload for both generate flows: a batch of
  * at least one lead. Each flow enforces its own per-lead requirement (LinkedIn
@@ -102,7 +115,7 @@ const postCacheUpdateBase = {
 
 /**
  * Body for the internal `post-cache/update` endpoint, discriminated on
- * `source`. The `comment_tracking` variant carries the 3 DM bodies; the
+ * `source`. The `comment_tracking` variant carries the 2 DM bodies; the
  * `someone_else` variant carries the 6 email template fields. Required string
  * fields are `.min(1)` so a row is never cached half-written.
  */
@@ -112,7 +125,6 @@ export const postCacheUpdatePayloadSchema = z.discriminatedUnion("source", [
 		source: z.literal("comment_tracking"),
 		dm1Body: z.string().min(1),
 		dm2Body: z.string().min(1),
-		dm3Body: z.string().min(1),
 	}),
 	z.object({
 		...postCacheUpdateBase,

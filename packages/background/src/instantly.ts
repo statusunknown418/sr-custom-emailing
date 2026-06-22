@@ -7,10 +7,13 @@ const MAX_CONCURRENT_PUSHES = 5;
 
 /**
  * A lead to add to the configured Instantly campaign. The post's selected lead
- * magnets travel as `customVariables` (`postername`, `postlabel`,
- * `ourdescription`, `painline`, `seconddescription`, `secondpainline`, plus the
- * per-lead `firstname`); the campaign's sequence steps reference them by name
- * (e.g. `{{postlabel}}`). Instantly fills its own `{{...}}` merge tags.
+ * magnet sequence travels as `customVariables` (`posterfullname`, `postlabel`,
+ * `article`, `what`, `solvesthis`, `painline`, `followup1article`,
+ * `followup1what`, `followup1solvesthis`, `followup1painline`,
+ * `followup2article`, `followup2what`, `followup2solvesthis`,
+ * `followup2painline`, plus the per-lead `firstname`); the campaign's sequence
+ * steps reference them by name (e.g. `{{postlabel}}`). Instantly fills its own
+ * `{{...}}` merge tags.
  */
 export interface InstantlyLead {
 	companyName: string;

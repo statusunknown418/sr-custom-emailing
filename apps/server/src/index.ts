@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handleApifyCommentersWebhook } from "./apify-webhook";
 import { handleDiscordInteraction } from "./discord";
+import { handleInstantlyReplyWebhook } from "./instantly-reply-webhook";
 
 initLogger({
 	env: { service: "sr-custom-emailing-server" },
@@ -76,6 +77,7 @@ app.use("/*", async (c, next) => {
 
 app.post("/discord/interactions", (c) => handleDiscordInteraction(c));
 app.post("/apify/commenters/:flow", (c) => handleApifyCommentersWebhook(c));
+app.post("/instantly/replies", (c) => handleInstantlyReplyWebhook(c));
 
 app.get("/", (c) => c.text("See /rpc and the appropiate route!"));
 

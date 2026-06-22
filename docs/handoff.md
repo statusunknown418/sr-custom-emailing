@@ -29,9 +29,13 @@ real keys.
 2. **Authoring** (`lead-magnet-selection.ts`): kept `generatePostEmailSequence`
    (Flow B); added `generatePostDmSequence` (Flow A). Shared catalog, validation,
    and poster-first-name helpers. DM copy keeps the `{{firstname}}` merge tag in
-   the stored copy and bakes the AI-inferred hard-to-fill role into DM 3; DM
-   bodies have no subjects. The generate step substitutes `{{firstname}}` per
-   lead before writing to the Sheet.
+   the stored copy. Flow A now stores 2 DMs: model-authored DM 1 that makes the
+   reader the hero with "you/your" and keeps the first-sentence resource mention
+   to 3 words or fewer, plus app-rendered DM 2 using the same
+   `<a/an> <what> that <benefit> so you don't have to <pain>` lead-magnet
+   structure.
+   The generate step substitutes `{{firstname}}` per lead before writing to the
+   Sheet.
 3. **Cache:** `postCacheUpdatePayloadSchema` is now a zod discriminated union on
    `source`; `upsertScrapedPost` takes a matching union; `postCacheRowSchema` +
    `getPostsByUrls`/`getPostByUrl` carry `source` + DM fields. `insertPendingPost`
@@ -40,18 +44,22 @@ real keys.
    `/internal/post-cache/batch-get` (dropped the `/automation` prefix). Client
    paths in `internal-api.ts` updated to match.
 5. **Flow A sink** (`google-sheets.ts`): `appendEmailRows`/`EmailSheetRow` ->
-   `appendDmRows`/`DmSheetRow`. Columns: `Date | Name | LinkedIn URL | Follow Up
-   | 2nd Follow Up | 3rd Follow Up`. The 3 Follow Up cells are the DM bodies
-   verbatim; rows without a LinkedIn URL are dropped. No `${firstName}`
-   substitution in this flow.
+   `appendDmRows`/`DmSheetRow`. Columns: `Date Added | Person's Name | LinkedIn
+   URL | LinkedIn Follow Up DM | LinkedIn Follow Up DM II | Company | Status |
+   Lead Magnet / Asset Requested | Source Post URL | Notes`. `Status` defaults
+   to `Needs DM`; `Notes` is blank; rows without a LinkedIn URL are dropped.
 6. **Flow B sink** (`instantly.ts`): `addLeadsToCampaign` pushes each lead to one
    Instantly campaign (`INSTANTLY_CAMPAIGN_ID`) via `POST /api/v2/leads`. The
-   post's selected magnets travel as `custom_variables` matching the campaign's
-   granular merge tags: `postername` (poster first name), `postlabel` /
-   `ourdescription` / `painline` (targeted magnet, step 1), `seconddescription` /
-   `secondpainline` (follow-up-one magnet, step 2), plus per-lead `firstname`.
-   Built in `someone-else-generate` `toPostCustomVars`; a row whose magnet ids no
-   longer resolve fails the run with the exact URL (never a blank-variable push).
+   post's selected magnet sequence travels as `custom_variables` matching the
+   Instantly template: `posterfullname` (poster first + last name), `postlabel`
+   (lowercase, three-word max), primary `article` (`a`/`an` for `what`), `what`,
+   `solvesthis`, `painline`, follow-up one `followup1article`,
+   `followup1what`, `followup1solvesthis`, `followup1painline`, follow-up two
+   `followup2article`, `followup2what`, `followup2solvesthis`,
+   `followup2painline`, plus per-lead `firstname`. Built in
+   `someone-else-generate` `toPostCustomVars`; a row whose selected magnet ids
+   no longer resolve fails the run with the exact URL (never a blank-variable
+   push).
    **Close sink added** (`close.ts`, new): `addLeadsToClose` also creates each
    emailed lead in Close as a plain lead (no opportunity / pipeline) via
    `POST https://api.close.com/api/v1/lead/`, Basic auth from

@@ -62,8 +62,7 @@ export async function runScrape(
 					existing?.scraped &&
 						existing.source === "comment_tracking" &&
 						existing.dm1Body &&
-						existing.dm2Body &&
-						existing.dm3Body
+						existing.dm2Body
 				)
 			: Boolean(
 					existing?.scraped &&

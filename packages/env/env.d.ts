@@ -17,6 +17,8 @@ declare module "cloudflare:workers" {
 			APIFY_API_KEY: string;
 			CORS_ORIGIN: string;
 			INSTANTLY_API_KEY: string;
+			INSTANTLY_CAMPAIGN_SLACK_WEBHOOKS: string;
+			INSTANTLY_WEBHOOK_SECRET: string;
 			TRIGGER_SECRET_KEY: string;
 		}
 	}

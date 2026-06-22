@@ -8,7 +8,12 @@ import {
 	FIRST_NAME_PLACEHOLDER,
 	stripEmDashes,
 } from "./emails";
-import { LEAD_MAGNETS, resolveLeadMagnetSequence } from "./lead-magnets";
+import {
+	getLeadMagnetInstantlyFields,
+	LEAD_MAGNETS,
+	type LeadMagnet,
+	resolveLeadMagnetSequence,
+} from "./lead-magnets";
 import { DEFAULT_FIRST_NAME, getFirstName } from "./names";
 
 /**
@@ -23,10 +28,6 @@ const LEAD_MAGNET_CATALOG = LEAD_MAGNETS.map(
 		`- ${magnet.id} [${magnet.category}] ${magnet.leadMagnet}: ${magnet.description} (pain: so you don't ${magnet.painLine})`
 ).join("\n");
 
-const DM3_CAMPAIGN_OFFER =
-	"so you can interview candidates not active on job boards? If you hire someone, consider them yours - on the house.";
-const LEADING_ROLE_ARTICLE_RE = /^(?:a|an|the)\s+/i;
-
 const EMAIL_SYSTEM_PROMPT = `You write cold outreach for a recruiting tools company, targeting people who commented on a LinkedIn lead-magnet post.
 
 Do three things from the post content:
@@ -35,18 +36,19 @@ Do three things from the post content:
 2. Select exactly THREE DISTINCT SuperRecruiter lead magnets WE could use from the catalog (return their ids verbatim). Only ids in the catalog exist - never invent one.
    - targetedLeadMagnetId: best SuperRecruiter fit for the post topic (used in email 1).
    - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary SuperRecruiter magnets, used in the two follow-ups.
-3. Write a 3-email sequence tailored to THIS post. Personalize with the post's topic and the poster's FIRST name only when one is provided (e.g. "Alex", never "Alex Papageorge").
+3. Write a 3-email sequence tailored to THIS post. Personalize with the post's topic and the poster's FULL name when one is provided (e.g. "Alex Papageorge", never only "Alex").
 
 Rules for the copy:
-- The ONLY placeholder allowed is ${FIRST_NAME_PLACEHOLDER}. Bake everything else (poster first name, topic, magnet pitch) directly into the text - do not leave any other \${...} tokens.
+- The ONLY placeholder allowed is ${FIRST_NAME_PLACEHOLDER}. Bake everything else (poster full name, topic, magnet pitch) directly into the text - do not leave any other \${...} tokens.
 - Every email body must open with "Hey ${FIRST_NAME_PLACEHOLDER}," so each body contains ${FIRST_NAME_PLACEHOLDER}.
 - Keep it short, plain text, lowercase casual subjects, no markdown, no signature.
+- Lead magnet wording in the copy must be lowercase. Never capitalize any letter in any lead magnet word.
 - NEVER use em dashes or en dashes (— or –). Use a single hyphen "-" or rephrase. Only a single dash is allowed anywhere in the copy.
 
 Structure to follow:
-- email1: reference their comment ("Saw your comment on <poster first name>'s post about <topic>." - drop the name if no poster is given), pitch the targeted SuperRecruiter magnet, soft CTA ("Want to check it out?"). Subject like "saw your linkedin comment" or "<poster first name>'s <topic>".
-- followUp1: subject "one more thing"; "We also built this one - <second SuperRecruiter magnet pitch>."; CTA "Want both?".
-- followUp2: subject "last thing"; "Last one - <third SuperRecruiter magnet pitch>."; CTA "Should I send it over?".
+- email1: reference their comment ("Saw your comment on <poster full name>'s post about <post label>."). Keep <post label> to 3 words or fewer. Then pitch the targeted SuperRecruiter magnet using this exact sentence shape: "We put together something similar - <a/an> <what> that <benefit> so you don't have to <pain>." CTA: "Want to check it out?". Subject: "your LinkedIn comment".
+- followUp1: subject "one more thing"; "We also built this one - <a/an> <second what> that <benefit> so you don't have to <pain>."; CTA "Want both?".
+- followUp2: subject "last thing"; "Last one - <a/an> <third what> that <benefit> so you don't have to <pain>."; CTA "Should I send it over?".
 
 Catalog:
 ${LEAD_MAGNET_CATALOG}`;
@@ -60,17 +62,16 @@ Do two things from the post content:
    - targetedLeadMagnetId: best SuperRecruiter fit, pitched in DM 2.
    - followUpOneLeadMagnetId, followUpTwoLeadMagnetId: complementary magnets, distinct from the others.
 
-Then write a 3-message LinkedIn DM sequence (dm1Body, dm2Body) plus dm3HardToFillRole. These are short, casual chat messages - NOT emails. No subject lines, no signatures, plain text, 1 to 3 short lines each.
+Then write DM 1 only. The application renders DM 2 from the selected lead magnet using the approved structure. These are short, casual chat messages - NOT emails. No subject lines, no signatures, plain text, 1 to 3 short lines each.
 
 Rules for the copy:
-- The ONLY merge tag allowed is ${DM_FIRST_NAME_TAG} - a downstream tool fills it per recipient, so leave it verbatim. DM 1 and DM 2 must open with "Hey ${DM_FIRST_NAME_TAG}" so each body contains ${DM_FIRST_NAME_TAG}. Do NOT use \${...} or invent any other {{...}} tag.
-- For DM 3, return only dm3HardToFillRole: infer the role the poster is hiring for (or the role most relevant to the post), without a leading article (e.g. "senior backend engineer", not "a senior backend engineer"). If the post gives no hiring/role signal, use "hard-to-fill role". NEVER return a {{...}} tag for the role.
-- The application will render DM 3 exactly as: "Hey ${DM_FIRST_NAME_TAG}\nSaw your hiring for a <dm3HardToFillRole> - want me to run a campaign for you ${DM3_CAMPAIGN_OFFER}"
+- The ONLY merge tag allowed is ${DM_FIRST_NAME_TAG} - a downstream tool fills it per recipient, so leave it verbatim. DM 1 must open with "Hey ${DM_FIRST_NAME_TAG}" so the body contains ${DM_FIRST_NAME_TAG}. Do NOT use \${...} or invent any other {{...}} tag.
+- Make the reader the hero. Use "you" and "your" instead of "I", "me", or "my". Keep the message about their workflow, their hiring, and their result.
 - NEVER use em dashes or en dashes (— or –). Use a single hyphen "-" or rephrase.
 
 Structure to follow:
-- dm1: friendly check-in on the resource they engaged with. "Hey ${DM_FIRST_NAME_TAG}, were you able to <use/apply the poster's resource>? Curious if it's helping your <workflow/hiring>."
-- dm2: "Hey ${DM_FIRST_NAME_TAG} - forgot to mention, we also made <targeted SuperRecruiter magnet> that <benefit> so you don't have to <pain>. Want to check it out?"
+- dm1: friendly check-in on the resource they engaged with. Keep the resource mention in the first sentence to 3 words or fewer. "Hey ${DM_FIRST_NAME_TAG}, were you able to <use/apply the poster's resource>? Curious if it's helping your <workflow/hiring>."
+- dm2 is rendered by the application as: "Hey ${DM_FIRST_NAME_TAG} - we put together something similar - <a/an> <what> that <benefit> so you don't have to <pain>. Worth a look?"
 
 Catalog:
 ${LEAD_MAGNET_CATALOG}`;
@@ -114,10 +115,6 @@ const emailGenerationSchema = z.object({
 const dmGenerationSchema = z.object({
 	...magnetSelectionShape,
 	dm1Body: z.string().describe(`DM 1 body. Must contain ${DM_FIRST_NAME_TAG}.`),
-	dm2Body: z.string().describe(`DM 2 body. Must contain ${DM_FIRST_NAME_TAG}.`),
-	dm3HardToFillRole: z
-		.string()
-		.describe("Role to render in DM 3, without a leading article."),
 });
 
 /** Poster magnet plus selected SuperRecruiter magnets and authored emails. */
@@ -167,20 +164,23 @@ function requireDmBody(value: string, field: string): string {
 	return body;
 }
 
-function requireHardToFillRole(value: string): string {
-	const role = requireNonEmpty(value, "dm3HardToFillRole").replace(
-		LEADING_ROLE_ARTICLE_RE,
-		""
-	);
-	if (role.includes("{{") || role.includes("}}")) {
-		throw new Error("dm3HardToFillRole must not contain merge tags");
+const READER_OWNERSHIP_RE = /\byour\b/i;
+const FIRST_PERSON_SINGULAR_RE = /\b(?:i|i'm|i’d|i'd|me|my|mine)\b/i;
+
+function requireReaderHeroDmBody(value: string, field: string): string {
+	const body = requireDmBody(value, field);
+	if (!READER_OWNERSHIP_RE.test(body)) {
+		throw new Error(`${field} must make the reader the hero with "your"`);
 	}
-	return role;
+	if (FIRST_PERSON_SINGULAR_RE.test(body)) {
+		throw new Error(`${field} must not use first-person singular pronouns`);
+	}
+	return body;
 }
 
-export function renderDm3Body(hardToFillRole: string): string {
-	return `Hey ${DM_FIRST_NAME_TAG}
-Saw your hiring for a ${requireHardToFillRole(hardToFillRole)} - want me to run a campaign for you ${DM3_CAMPAIGN_OFFER}`;
+export function renderDm2Body(magnet: LeadMagnet): string {
+	const fields = getLeadMagnetInstantlyFields(magnet);
+	return `Hey ${DM_FIRST_NAME_TAG} - we put together something similar - ${fields.article} ${fields.what} that ${fields.solvesthis} so you don't have to ${fields.painline}. Worth a look?`;
 }
 
 /**
@@ -262,11 +262,11 @@ export async function generatePostEmailSequence(input: {
 
 /**
  * From scraped post content, identify the poster's lead magnet, select our
- * post-level lead magnet sequence (3 distinct real magnets), and author the
- * 3-message LinkedIn DM sequence. Ids are validated via
- * {@link resolveLeadMagnetSequence}; each DM body is checked to be non-empty and
- * to contain the `{{firstname}}` merge tag (left in the stored copy; substituted
- * per lead at generate time). The hard-to-fill role is baked in by the model.
+ * post-level lead magnet sequence (3 distinct real magnets), author DM 1, and
+ * render DM 2 from the targeted magnet. Ids are validated via
+ * {@link resolveLeadMagnetSequence}; both DM bodies are checked to be non-empty
+ * and to contain the `{{firstname}}` merge tag (left in the stored copy;
+ * substituted per lead at generate time).
  *
  * @throws If `postContent` is blank, the model returns unknown/duplicate ids, or
  *   any DM body is empty / lacks the `{{firstname}}` merge tag.
@@ -295,9 +295,8 @@ export async function generatePostDmSequence(input: {
 	});
 
 	const sequence: DmSequence = {
-		dm1: requireDmBody(output.dm1Body, "dm1Body"),
-		dm2: requireDmBody(output.dm2Body, "dm2Body"),
-		dm3: renderDm3Body(output.dm3HardToFillRole),
+		dm1: requireReaderHeroDmBody(output.dm1Body, "dm1Body"),
+		dm2: renderDm2Body(resolved.targeted),
 	};
 
 	return {

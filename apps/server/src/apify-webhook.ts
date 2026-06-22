@@ -1,6 +1,7 @@
 import { forwardHarvestedCommenters } from "@sr-custom-emailing/api/commenters-service";
 import { env } from "@sr-custom-emailing/env/server";
 import type { Context } from "hono";
+import { safeEqual } from "./http-auth";
 
 const WEBHOOK_SECRET_HEADER = "x-apify-webhook-secret";
 /** The only terminal run event whose dataset we forward to Clay. */
@@ -9,21 +10,6 @@ const SUCCEEDED_EVENT = "ACTOR.RUN.SUCCEEDED";
 interface ApifyWebhookBody {
 	eventType?: string;
 	resource?: { defaultDatasetId?: string };
-}
-
-/** Constant-time string comparison so the secret can't be probed via timing. */
-function safeEqual(a: string, b: string): boolean {
-	if (a.length !== b.length) {
-		return false;
-	}
-
-	let mismatch = 0;
-	for (let i = 0; i < a.length; i += 1) {
-		if (a.charCodeAt(i) !== b.charCodeAt(i)) {
-			mismatch += 1;
-		}
-	}
-	return mismatch === 0;
 }
 
 /**

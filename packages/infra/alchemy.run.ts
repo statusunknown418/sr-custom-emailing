@@ -39,8 +39,13 @@ export const server = await Worker("server", {
 		TRIGGER_SECRET_KEY: alchemy.secret(alchemy.env.TRIGGER_SECRET_KEY),
 		INTERNAL_API_SECRET: alchemy.secret(alchemy.env.INTERNAL_API_SECRET),
 		APIFY_WEBHOOK_SECRET: alchemy.secret(alchemy.env.APIFY_WEBHOOK_SECRET),
+		INSTANTLY_WEBHOOK_SECRET: alchemy.secret(
+			alchemy.env.INSTANTLY_WEBHOOK_SECRET
+		),
 		DISCORD_PUBLIC_KEY: alchemy.env.DISCORD_PUBLIC_KEY ?? "",
 		MAKE_WEBHOOK_URL: alchemy.env.MAKE_WEBHOOK_URL ?? "",
+		INSTANTLY_CAMPAIGN_SLACK_WEBHOOKS:
+			alchemy.env.INSTANTLY_CAMPAIGN_SLACK_WEBHOOKS ?? "{}",
 	},
 	dev: {
 		port: 3000,
