@@ -77,7 +77,12 @@ app.use("/*", async (c, next) => {
 
 app.post("/discord/interactions", (c) => handleDiscordInteraction(c));
 app.post("/apify/commenters/:flow", (c) => handleApifyCommentersWebhook(c));
-app.post("/instantly/replies", (c) => handleInstantlyReplyWebhook(c));
+app.post("/instantly/replies", (c) =>
+	handleInstantlyReplyWebhook(c, "primary")
+);
+app.post("/instantly/replies/extra", (c) =>
+	handleInstantlyReplyWebhook(c, "extra")
+);
 
 app.get("/", (c) => c.text("See /rpc and the appropiate route!"));
 

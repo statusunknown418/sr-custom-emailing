@@ -8,7 +8,8 @@ import { safeEqual } from "./http-auth";
 const AUTH_HEADER = "authorization";
 const AUTH_SCHEME_RE = /^(?:basic|bearer)\s+/i;
 const REPLY_RECEIVED_EVENT = "reply_received";
-const SLACK_NOTIFICATION_ENDPOINT = "/instantly/replies";
+const PRIMARY_REPLY_ENDPOINT = "/instantly/replies";
+const EXTRA_REPLY_ENDPOINT = "/instantly/replies/extra";
 const SLACK_NOTIFICATION_FLOW = "instantly_reply_notification";
 
 /**
@@ -21,6 +22,7 @@ const AUTO_REPLY_RE =
 type InstantlyReplyPayload = Record<string, unknown>;
 
 type InstantlyReplyContext = Context<EvlogVariables>;
+type InstantlyReplyWorkspace = "extra" | "primary";
 
 type SlackNotificationStatus = "enqueued" | "failed" | "received" | "skipped";
 
@@ -38,6 +40,7 @@ interface SlackNotificationEvent {
 	reason?: string;
 	status: SlackNotificationStatus;
 	taskId?: string;
+	workspace?: InstantlyReplyWorkspace;
 }
 
 interface ReplyDetails {
@@ -58,6 +61,10 @@ interface ReplyDetails {
  * this map; the resolved URL travels in the notify task's payload.
  */
 const CAMPAIGN_SLACK_WEBHOOK_CONFIG = readCampaignSlackWebhookConfig();
+
+function getReplyEndpoint(workspace: InstantlyReplyWorkspace): string {
+	return workspace === "extra" ? EXTRA_REPLY_ENDPOINT : PRIMARY_REPLY_ENDPOINT;
+}
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -105,13 +112,15 @@ function readCampaignSlackWebhookConfig(): CampaignSlackWebhookConfig {
 
 function recordSlackNotificationEvent(
 	log: RequestLogger,
-	event: SlackNotificationEvent
+	event: SlackNotificationEvent,
+	workspace: InstantlyReplyWorkspace
 ): void {
 	log.set({
 		slack: {
 			notification: {
-				endpoint: SLACK_NOTIFICATION_ENDPOINT,
+				endpoint: getReplyEndpoint(workspace),
 				flow: SLACK_NOTIFICATION_FLOW,
+				workspace,
 				...event,
 			},
 		},
@@ -164,22 +173,27 @@ function extractReplyDetails(payload: InstantlyReplyPayload): ReplyDetails {
  * route acks fast - Instantly recommends async processing for this event.
  */
 export async function handleInstantlyReplyWebhook(
-	c: InstantlyReplyContext
+	c: InstantlyReplyContext,
+	workspace: InstantlyReplyWorkspace = "primary"
 ): Promise<Response> {
 	const log = c.get("log");
 	const expectedSecret = env.INSTANTLY_WEBHOOK_SECRET;
 	const providedSecret = c.req.header(AUTH_HEADER)?.replace(AUTH_SCHEME_RE, "");
 
-	recordSlackNotificationEvent(log, { status: "received" });
+	const recordEvent = (event: SlackNotificationEvent) =>
+		recordSlackNotificationEvent(log, event, workspace);
+
+	recordEvent({ status: "received" });
 
 	if (CAMPAIGN_SLACK_WEBHOOK_CONFIG.error) {
 		log.error("Invalid Slack webhook mapping config", {
 			slack: {
 				notification: {
 					configError: CAMPAIGN_SLACK_WEBHOOK_CONFIG.error,
-					endpoint: SLACK_NOTIFICATION_ENDPOINT,
+					endpoint: getReplyEndpoint(workspace),
 					flow: SLACK_NOTIFICATION_FLOW,
 					status: "failed",
+					workspace,
 				},
 			},
 		});
@@ -193,10 +207,11 @@ export async function handleInstantlyReplyWebhook(
 		log.warn("Instantly Slack notification rejected", {
 			slack: {
 				notification: {
-					endpoint: SLACK_NOTIFICATION_ENDPOINT,
+					endpoint: getReplyEndpoint(workspace),
 					flow: SLACK_NOTIFICATION_FLOW,
 					reason: "invalid_webhook_secret",
 					status: "skipped",
+					workspace,
 				},
 			},
 		});
@@ -210,10 +225,11 @@ export async function handleInstantlyReplyWebhook(
 		log.warn("Instantly Slack notification rejected", {
 			slack: {
 				notification: {
-					endpoint: SLACK_NOTIFICATION_ENDPOINT,
+					endpoint: getReplyEndpoint(workspace),
 					flow: SLACK_NOTIFICATION_FLOW,
 					reason: "invalid_json",
 					status: "skipped",
+					workspace,
 				},
 			},
 		});
@@ -223,7 +239,7 @@ export async function handleInstantlyReplyWebhook(
 	const eventType = readString(payload, "event_type", "eventType");
 	const details = extractReplyDetails(payload);
 	if (eventType !== REPLY_RECEIVED_EVENT) {
-		recordSlackNotificationEvent(log, {
+		recordEvent({
 			campaignId: details.campaignId,
 			campaignName: details.campaignName,
 			eventType,
@@ -239,7 +255,7 @@ export async function handleInstantlyReplyWebhook(
 		CAMPAIGN_SLACK_WEBHOOK_CONFIG.webhooks[details.campaignId] ??
 		CAMPAIGN_SLACK_WEBHOOK_CONFIG.webhooks[details.campaignName];
 
-	recordSlackNotificationEvent(log, {
+	recordEvent({
 		campaignId: details.campaignId,
 		campaignName: details.campaignName,
 		eventType,
@@ -248,7 +264,7 @@ export async function handleInstantlyReplyWebhook(
 	});
 
 	if (!slackWebhookUrl) {
-		recordSlackNotificationEvent(log, {
+		recordEvent({
 			campaignId: details.campaignId,
 			campaignName: details.campaignName,
 			configError: CAMPAIGN_SLACK_WEBHOOK_CONFIG.error,
@@ -262,7 +278,7 @@ export async function handleInstantlyReplyWebhook(
 	}
 
 	if (!details.replyText || AUTO_REPLY_RE.test(details.replyText)) {
-		recordSlackNotificationEvent(log, {
+		recordEvent({
 			campaignId: details.campaignId,
 			campaignName: details.campaignName,
 			eventType,
@@ -283,8 +299,9 @@ export async function handleInstantlyReplyWebhook(
 			replyText: details.replyText,
 			slackWebhookUrl,
 			uniboxUrl: details.uniboxUrl,
+			workspace,
 		});
-		recordSlackNotificationEvent(log, {
+		recordEvent({
 			campaignId: details.campaignId,
 			campaignName: details.campaignName,
 			eventType,
@@ -295,7 +312,7 @@ export async function handleInstantlyReplyWebhook(
 		log.info("Instantly reply notification enqueued");
 		return c.json({ enqueued: true, ok: true, taskId });
 	} catch (error) {
-		recordSlackNotificationEvent(log, {
+		recordEvent({
 			campaignId: details.campaignId,
 			campaignName: details.campaignName,
 			eventType,
@@ -307,10 +324,11 @@ export async function handleInstantlyReplyWebhook(
 				notification: {
 					campaignId: details.campaignId,
 					campaignName: details.campaignName,
-					endpoint: SLACK_NOTIFICATION_ENDPOINT,
+					endpoint: getReplyEndpoint(workspace),
 					flow: SLACK_NOTIFICATION_FLOW,
 					leadEmail: details.leadEmail,
 					status: "failed",
+					workspace,
 				},
 			},
 		});

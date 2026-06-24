@@ -102,6 +102,12 @@ export const leadBatchPayloadSchema = z.object({
 
 export type LeadBatchPayload = z.infer<typeof leadBatchPayloadSchema>;
 
+export const instantlyReplyWorkspaceSchema = z.enum(["primary", "extra"]);
+
+export type InstantlyReplyWorkspace = z.infer<
+	typeof instantlyReplyWorkspaceSchema
+>;
+
 /**
  * Trigger payload for `instantly-reply-notify`: emitted by the Instantly reply
  * webhook once a genuine human reply clears the edge filters. Carries the Slack
@@ -111,6 +117,7 @@ export type LeadBatchPayload = z.infer<typeof leadBatchPayloadSchema>;
  * task, not the Worker.
  */
 export const instantlyReplyNotifyPayloadSchema = z.object({
+	workspace: instantlyReplyWorkspaceSchema.default("primary"),
 	campaignId: z.string(),
 	campaignName: z.string(),
 	leadEmail: z.string(),

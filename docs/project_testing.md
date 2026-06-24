@@ -80,6 +80,10 @@ Placeholders (`APIFY_API_KEY=123`, etc.) WILL fail at runtime.
   `{{followup1what}}`, `{{followup1solvesthis}}`, `{{followup1painline}}`,
   `{{followup2article}}`, `{{followup2what}}`, `{{followup2solvesthis}}`, and
   `{{followup2painline}}`.
+- Reply webhooks: configure the primary Instantly workspace to POST
+  `/instantly/replies` and the extra workspace to POST `/instantly/replies/extra`.
+  Set `INSTANTLY_EXTRA_API_KEY` in Trigger.dev so extra-workspace reply tasks can
+  fetch the prior sent message from the correct workspace.
 - Close: base64-encode the `apikey:` HTTP Basic credential (key as username,
   empty password) -> `CLOSE_ENCODED_API_KEY` (sent verbatim as `Basic <value>`).
   Each emailed lead is created as a plain Close lead (no opportunity / pipeline).
@@ -120,7 +124,7 @@ Placeholders (`APIFY_API_KEY=123`, etc.) WILL fail at runtime.
 | `APIFY_API_KEY` (+ `APIFY_LINKEDIN_POST_ACTOR_ID?`)                   | —                              | ✅                      |
 | `ANTHROPIC_API_KEY`                                                   | —                              | ✅                      |
 | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB?` | —                              | ✅ (Flow A)             |
-| `INSTANTLY_API_KEY`, `INSTANTLY_CAMPAIGN_ID`                          | —                              | ✅ (Flow B)             |
+| `INSTANTLY_API_KEY`, `INSTANTLY_EXTRA_API_KEY`, `INSTANTLY_CAMPAIGN_ID`       | —                              | ✅ (Flow B + replies)   |
 | `CLOSE_ENCODED_API_KEY`                                              | —                              | ✅ (Flow B)             |
 | `INTERNAL_API_URL`                                                    | —                              | ✅                      |
 | `CLAY_ENRICHER_TABLE_URL`, `CLAY_ENRICHER_AUTH_TOKEN`                 | —                              | ✅                      |
@@ -273,6 +277,10 @@ and per-lead `firstname`.
 In Close a new lead exists (company name + website,
 one contact with the work email + LinkedIn URL, Lead Source `Lead Scraping`); no
 opportunity is attached.
+
+Extra-workspace reply listening uses the same Worker and webhook secret, but the
+Instantly webhook URL must be `/instantly/replies/extra`; the notification task
+then reads prior sent email context with `INSTANTLY_EXTRA_API_KEY`.
 
 ### 5.3 Negative — generate before scrape
 

@@ -143,8 +143,9 @@ Add `APIFY_WEBHOOK_SECRET` (Worker; identical value on the Trigger project).
 
 Trigger.dev project env still needed: `APIFY_API_KEY`, `ANTHROPIC_API_KEY`,
 `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB?` (Flow A),
-`INSTANTLY_API_KEY`, **`INSTANTLY_CAMPAIGN_ID`** (Flow B), `INTERNAL_API_URL`,
-`INTERNAL_API_SECRET`. See the table in `project_testing.md` Phase 1.
+`INSTANTLY_API_KEY`, `INSTANTLY_EXTRA_API_KEY` (extra reply workspace),
+**`INSTANTLY_CAMPAIGN_ID`** (Flow B), `INTERNAL_API_URL`, `INTERNAL_API_SECRET`.
+See the table in `project_testing.md` Phase 1.
 Commenter harvest adds (Trigger env): `CLAY_ENRICHER_TABLE_URL`,
 `CLAY_ENRICHER_AUTH_TOKEN`, `APIFY_WEBHOOK_SECRET`, optional
 `APIFY_LINKEDIN_COMMENTS_ACTOR_ID` / `APIFY_COMMENTS_MAX_ITEMS` (default 1000).

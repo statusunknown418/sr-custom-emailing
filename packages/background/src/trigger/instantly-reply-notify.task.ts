@@ -35,15 +35,18 @@ export const instantlyReplyNotify = schemaTask({
 			replyText,
 			slackWebhookUrl,
 			uniboxUrl,
+			workspace,
 		} = payload;
 
 		const priorMessage = await fetchLastSentMessage({
 			campaignId,
 			leadEmail,
+			workspace,
 		}).catch((error: unknown) => {
 			logger.warn("Could not fetch prior Instantly message", {
 				error: error instanceof Error ? error.message : String(error),
 				leadEmail,
+				workspace,
 			});
 			return null;
 		});

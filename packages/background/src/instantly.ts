@@ -1,6 +1,19 @@
 import { requireEnv } from "./process-env";
+import type { InstantlyReplyWorkspace } from "./types";
 
 const INSTANTLY_LEADS_URL = "https://api.instantly.ai/api/v2/leads";
+
+const INSTANTLY_WORKSPACE_API_KEY_ENV: Record<
+	InstantlyReplyWorkspace,
+	"INSTANTLY_API_KEY" | "INSTANTLY_EXTRA_API_KEY"
+> = {
+	extra: "INSTANTLY_EXTRA_API_KEY",
+	primary: "INSTANTLY_API_KEY",
+};
+
+function getInstantlyApiKey(workspace: InstantlyReplyWorkspace): string {
+	return requireEnv(INSTANTLY_WORKSPACE_API_KEY_ENV[workspace]);
+}
 
 /** Max concurrent lead POSTs to Instantly, to stay clear of rate limits. */
 const MAX_CONCURRENT_PUSHES = 5;
@@ -68,7 +81,7 @@ async function pushLead(
 export async function addLeadsToCampaign(
 	leads: InstantlyLead[]
 ): Promise<AddLeadsToCampaignResult> {
-	const apiKey = requireEnv("INSTANTLY_API_KEY");
+	const apiKey = getInstantlyApiKey("primary");
 	const campaignId = requireEnv("INSTANTLY_CAMPAIGN_ID");
 
 	const writableLeads = leads.filter((lead) => lead.email.trim() !== "");
@@ -95,6 +108,12 @@ interface ListEmailsResponse {
 	items?: InstantlyEmail[];
 }
 
+interface FetchLastSentMessageInput {
+	campaignId: string;
+	leadEmail: string;
+	workspace: InstantlyReplyWorkspace;
+}
+
 /** Epoch millis of an email's send time, or 0 when no timestamp parses. */
 function emailSentAt(email: InstantlyEmail): number {
 	const raw = email.timestamp_email ?? email.timestamp_created ?? "";
@@ -112,11 +131,10 @@ function emailSentAt(email: InstantlyEmail): number {
  * found. Throws on a non-2xx response; the notify task treats a failure as
  * best-effort and posts without the prior message rather than dropping it.
  */
-export async function fetchLastSentMessage(input: {
-	campaignId: string;
-	leadEmail: string;
-}): Promise<string | null> {
-	const apiKey = requireEnv("INSTANTLY_API_KEY");
+export async function fetchLastSentMessage(
+	input: FetchLastSentMessageInput
+): Promise<string | null> {
+	const apiKey = getInstantlyApiKey(input.workspace);
 
 	const url = new URL(INSTANTLY_EMAILS_URL);
 	url.searchParams.set("preview_only", "false");
