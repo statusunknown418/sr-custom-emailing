@@ -102,6 +102,28 @@ export const leadBatchPayloadSchema = z.object({
 
 export type LeadBatchPayload = z.infer<typeof leadBatchPayloadSchema>;
 
+/**
+ * Trigger payload for `instantly-reply-notify`: emitted by the Instantly reply
+ * webhook once a genuine human reply clears the edge filters. Carries the Slack
+ * Incoming Webhook URL already resolved for the reply's campaign channel (the
+ * Worker stays the single source of the campaign -> channel map) plus the reply
+ * context. Intent classification and the suggested-reply draft happen in the
+ * task, not the Worker.
+ */
+export const instantlyReplyNotifyPayloadSchema = z.object({
+	campaignId: z.string(),
+	campaignName: z.string(),
+	leadEmail: z.string(),
+	replySubject: z.string(),
+	replyText: z.string().min(1),
+	slackWebhookUrl: z.string().min(1),
+	uniboxUrl: z.string(),
+});
+
+export type InstantlyReplyNotifyPayload = z.infer<
+	typeof instantlyReplyNotifyPayloadSchema
+>;
+
 /** Scrape + magnet-selection fields common to every cache update. */
 const postCacheUpdateBase = {
 	originalPostUrl: z.string().min(1),

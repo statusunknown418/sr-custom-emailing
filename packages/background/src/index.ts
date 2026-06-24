@@ -4,6 +4,7 @@ import type { commentTrackingGenerate } from "./trigger/comment-tracking-generat
 import type { commentTrackingScrape } from "./trigger/comment-tracking-scrape.task";
 import type { forwardCommentersToClay } from "./trigger/forward-commenters-to-clay.task";
 import type { harvestCommenters } from "./trigger/harvest-commenters.task";
+import type { instantlyReplyNotify } from "./trigger/instantly-reply-notify.task";
 import type { someoneElseGenerate } from "./trigger/someone-else-generate.task";
 import type { someoneElseScrape } from "./trigger/someone-else-scrape.task";
 import {
@@ -11,6 +12,8 @@ import {
 	forwardCommentersPayloadSchema,
 	type HarvestCommentersPayload,
 	harvestCommentersPayloadSchema,
+	type InstantlyReplyNotifyPayload,
+	instantlyReplyNotifyPayloadSchema,
 	type LeadBatchPayload,
 	leadBatchPayloadSchema,
 	type ScrapePostPayload,
@@ -21,6 +24,7 @@ export type {
 	ClayLead,
 	ForwardCommentersPayload,
 	HarvestCommentersPayload,
+	InstantlyReplyNotifyPayload,
 	LeadBatchPayload,
 	PostSource,
 	ScrapePostPayload,
@@ -29,6 +33,7 @@ export {
 	clayLeadSchema,
 	forwardCommentersPayloadSchema,
 	harvestCommentersPayloadSchema,
+	instantlyReplyNotifyPayloadSchema,
 	leadBatchPayloadSchema,
 	scrapePostPayloadSchema,
 } from "./types";
@@ -110,6 +115,19 @@ export async function triggerForwardCommentersToClay(
 	const parsedPayload = forwardCommentersPayloadSchema.parse(payload);
 	const handle = await tasks.trigger<typeof forwardCommentersToClay>(
 		"forward-commenters-to-clay",
+		parsedPayload
+	);
+
+	return { id: handle.id };
+}
+
+/** Enqueue the Instantly reply notification task (reply -> Slack hot-reply card). */
+export async function triggerInstantlyReplyNotify(
+	payload: InstantlyReplyNotifyPayload
+): Promise<TriggerTaskResult> {
+	const parsedPayload = instantlyReplyNotifyPayloadSchema.parse(payload);
+	const handle = await tasks.trigger<typeof instantlyReplyNotify>(
+		"instantly-reply-notify",
 		parsedPayload
 	);
 

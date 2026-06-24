@@ -6,15 +6,15 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { createContext } from "@sr-custom-emailing/api/context";
 import { appRouter } from "@sr-custom-emailing/api/routers/index";
 import { env } from "@sr-custom-emailing/env/server";
-import { initLogger } from "evlog";
 import { type EvlogVariables, evlog } from "evlog/hono";
+import { initWorkersLogger } from "evlog/workers";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handleApifyCommentersWebhook } from "./apify-webhook";
 import { handleDiscordInteraction } from "./discord";
 import { handleInstantlyReplyWebhook } from "./instantly-reply-webhook";
 
-initLogger({
+initWorkersLogger({
 	env: { service: "sr-custom-emailing-server" },
 });
 

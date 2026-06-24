@@ -81,3 +81,69 @@ export async function addLeadsToCampaign(
 
 	return { added: writableLeads.length, skipped };
 }
+
+const INSTANTLY_EMAILS_URL = "https://api.instantly.ai/api/v2/emails";
+
+/** One email returned by the Instantly list-emails endpoint (fields we read). */
+interface InstantlyEmail {
+	body?: { html?: string; text?: string };
+	timestamp_created?: string;
+	timestamp_email?: string;
+}
+
+interface ListEmailsResponse {
+	items?: InstantlyEmail[];
+}
+
+/** Epoch millis of an email's send time, or 0 when no timestamp parses. */
+function emailSentAt(email: InstantlyEmail): number {
+	const raw = email.timestamp_email ?? email.timestamp_created ?? "";
+	const parsed = Date.parse(raw);
+	return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * Fetch the most recent message WE sent to a lead in a campaign - the "your
+ * prior message" context for the hot-reply Slack notification and the
+ * suggested-reply draft. Instantly's `reply_received` webhook carries only the
+ * prospect's reply, so the prior step is pulled from the emails API here.
+ *
+ * Returns the plain-text body of the latest sent email, or `null` when none is
+ * found. Throws on a non-2xx response; the notify task treats a failure as
+ * best-effort and posts without the prior message rather than dropping it.
+ */
+export async function fetchLastSentMessage(input: {
+	campaignId: string;
+	leadEmail: string;
+}): Promise<string | null> {
+	const apiKey = requireEnv("INSTANTLY_API_KEY");
+
+	const url = new URL(INSTANTLY_EMAILS_URL);
+	url.searchParams.set("preview_only", "false");
+	url.searchParams.set("email_type", "sent");
+	url.searchParams.set("campaign_id", input.campaignId);
+	url.searchParams.set("lead", input.leadEmail);
+
+	const response = await fetch(url, {
+		headers: { authorization: `Bearer ${apiKey}` },
+	});
+
+	if (!response.ok) {
+		const detail = await response.text().catch(() => "");
+		throw new Error(
+			`Instantly list-emails failed for ${input.leadEmail}: ${response.status} ${response.statusText} ${detail}`.trim()
+		);
+	}
+
+	const data = (await response.json()) as ListEmailsResponse;
+	const items = Array.isArray(data.items) ? data.items : [];
+	if (items.length === 0) {
+		return null;
+	}
+
+	const latest = items.reduce((best, current) =>
+		emailSentAt(current) > emailSentAt(best) ? current : best
+	);
+	const text = latest.body?.text?.trim();
+	return text ? text : null;
+}
